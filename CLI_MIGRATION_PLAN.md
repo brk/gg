@@ -22,6 +22,46 @@ The following mutations have been successfully migrated to use the jj CLI:
    - File: `src/worker/mutations_cli.rs:95-116`
    - Notes: Fully functional, jj handles topological ordering
 
+4. **CheckoutRevision** - `jj edit <commit_id>`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:118-149`
+   - Notes: Fully functional, checks out revision for editing
+
+5. **CreateRevision** - `jj new <parent_ids>`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:151-183`
+   - Notes: Fully functional, creates new empty revision with specified parents
+
+6. **UndoOperation** - `jj operation undo`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:185-207`
+   - Notes: Undoes most recent operation
+
+7. **TrackBranch** - `jj bookmark track <remote>@<branch>`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:209-248`
+   - Notes: Fully functional, tracks remote bookmarks
+
+8. **UntrackBranch** - `jj bookmark untrack <bookmark>`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:250-300`
+   - Notes: Supports both specific and wildcard patterns
+
+9. **CreateRef** - `jj bookmark create` / `jj tag create`
+   - Status: ✅ Migrated
+   - File: `src/worker/mutations_cli.rs:302-355`
+   - Notes: Supports both bookmarks and tags
+
+10. **DeleteRef** - `jj bookmark delete` / `jj bookmark forget` / `jj tag delete`
+    - Status: ✅ Migrated
+    - File: `src/worker/mutations_cli.rs:357-408`
+    - Notes: Uses `forget` for remote bookmarks, `delete` for local bookmarks and tags
+
+11. **MoveRef** - `jj bookmark set` / `jj tag delete` + `jj tag create`
+    - Status: ✅ Migrated
+    - File: `src/worker/mutations_cli.rs:410-462`
+    - Notes: Tags require delete+recreate since they can't be moved directly
+
 ## Infrastructure Added
 
 - **`src/worker/cli_executor.rs`**: New module providing `JjCliExecutor` struct for executing jj CLI commands

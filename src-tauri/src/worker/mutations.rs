@@ -83,66 +83,15 @@ impl Mutation for BackoutRevisions {
 
 impl Mutation for CheckoutRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let edited = ws.resolve_single_change(&self.id)?;
-
-        if ws.check_immutable(vec![edited.id().clone()])? {
-            precondition!("Revision is immutable");
-        }
-
-        if edited.id() == ws.wc_id() {
-            return Ok(MutationResult::Unchanged);
-        }
-
-        tx.repo_mut().edit(ws.name().to_owned(), &edited)?;
-
-        match ws.finish_transaction(tx, format!("edit commit {}", edited.id().hex()))? {
-            Some(new_status) => {
-                let new_selection = ws.format_header(&edited, Some(false))?;
-                Ok(MutationResult::UpdatedSelection {
-                    new_status,
-                    new_selection,
-                })
-            }
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 impl Mutation for CreateRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let parents_revset = ws.evaluate_revset_changes(
-            &self
-                .parent_ids
-                .into_iter()
-                .map(|id| id.change)
-                .collect_vec(),
-        )?;
-
-        let parent_ids: Result<_, _> = parents_revset.iter().collect();
-        let parent_commits = ws.resolve_multiple(parents_revset)?;
-        let merged_tree = block_on(rewrite::merge_commit_trees(tx.repo(), &parent_commits))?;
-
-        let new_commit = tx
-            .repo_mut()
-            .new_commit(parent_ids?, merged_tree.id())
-            .write()?;
-
-        tx.repo_mut().edit(ws.name().to_owned(), &new_commit)?;
-
-        match ws.finish_transaction(tx, "new empty commit")? {
-            Some(new_status) => {
-                let new_selection = ws.format_header(&new_commit, Some(false))?;
-                Ok(MutationResult::UpdatedSelection {
-                    new_status,
-                    new_selection,
-                })
-            }
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
@@ -435,120 +384,15 @@ impl Mutation for CopyChanges {
 
 impl Mutation for TrackBranch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        match self.r#ref {
-            StoreRef::Tag { tag_name } => {
-                precondition!("{} is a tag and cannot be tracked", tag_name);
-            }
-            StoreRef::LocalBookmark { branch_name, .. } => {
-                precondition!("{} is a local bookmark and cannot be tracked", branch_name);
-            }
-            StoreRef::RemoteBookmark {
-                branch_name,
-                remote_name,
-                ..
-            } => {
-                let mut tx = ws.start_transaction()?;
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let remote_name_ref = RemoteNameBuf::from(remote_name);
-                let remote_ref_symbol = RemoteRefSymbol {
-                    name: &branch_name_ref,
-                    remote: &remote_name_ref,
-                };
-
-                let remote_ref: &jj_lib::op_store::RemoteRef =
-                    ws.view().get_remote_bookmark(remote_ref_symbol);
-
-                if remote_ref.is_tracked() {
-                    precondition!(
-                        "{:?}@{:?} is already tracked",
-                        branch_name_ref.as_str(),
-                        remote_name_ref.as_str()
-                    );
-                }
-
-                tx.repo_mut().track_remote_bookmark(remote_ref_symbol);
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "track remote bookmark {:?}@{:?}",
-                        branch_name_ref.as_str(),
-                        remote_name_ref.as_str()
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 impl Mutation for UntrackBranch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let mut untracked = Vec::new();
-        match self.r#ref {
-            StoreRef::Tag { tag_name } => {
-                precondition!("{} is a tag and cannot be untracked", tag_name);
-            }
-            StoreRef::LocalBookmark { branch_name, .. } => {
-                // untrack all remotes
-                for (remote_ref_symbol, remote_ref) in ws.view().remote_bookmarks_matching(
-                    &StringPattern::exact(branch_name),
-                    &StringPattern::everything(),
-                ) {
-                    if remote_ref_symbol.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO
-                        && remote_ref.is_tracked()
-                    {
-                        tx.repo_mut().untrack_remote_bookmark(remote_ref_symbol);
-                        untracked.push(format!(
-                            "{}@{}",
-                            remote_ref_symbol.name.as_str(),
-                            remote_ref_symbol.remote.as_str()
-                        ));
-                    }
-                }
-            }
-            StoreRef::RemoteBookmark {
-                branch_name,
-                remote_name,
-                ..
-            } => {
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let remote_name_ref = RemoteNameBuf::from(remote_name);
-                let remote_ref_symbol = RemoteRefSymbol {
-                    name: &branch_name_ref,
-                    remote: &remote_name_ref,
-                };
-                let remote_ref: &jj_lib::op_store::RemoteRef =
-                    ws.view().get_remote_bookmark(remote_ref_symbol);
-
-                if !remote_ref.is_tracked() {
-                    precondition!(
-                        "{:?}@{:?} is not tracked",
-                        branch_name_ref.as_str(),
-                        remote_name_ref.as_str()
-                    );
-                }
-
-                tx.repo_mut().untrack_remote_bookmark(remote_ref_symbol);
-                untracked.push(format!(
-                    "{}@{}",
-                    branch_name_ref.as_str(),
-                    remote_name_ref.as_str()
-                ));
-            }
-        }
-
-        match ws.finish_transaction(
-            tx,
-            format!("untrack remote {}", combine_bookmarks(&untracked)),
-        )? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
@@ -590,199 +434,23 @@ impl Mutation for RenameBranch {
 
 impl Mutation for CreateRef {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let commit = ws.resolve_single_change(&self.id)?;
-
-        match self.r#ref {
-            StoreRef::RemoteBookmark {
-                branch_name,
-                remote_name,
-                ..
-            } => {
-                precondition!(
-                    "{}@{} is a remote bookmark and cannot be created",
-                    branch_name,
-                    remote_name
-                );
-            }
-            StoreRef::LocalBookmark { branch_name, .. } => {
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let existing_branch = ws.view().get_local_bookmark(&branch_name_ref);
-                if existing_branch.is_present() {
-                    precondition!("{} already exists", branch_name_ref.as_str());
-                }
-
-                tx.repo_mut().set_local_bookmark_target(
-                    &branch_name_ref,
-                    RefTarget::normal(commit.id().clone()),
-                );
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "create {} pointing to commit {}",
-                        branch_name_ref.as_str(),
-                        ws.format_commit_id(commit.id()).hex
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-            StoreRef::Tag { tag_name, .. } => {
-                let tag_name_ref = RefNameBuf::from(tag_name);
-                let existing_tag = ws.view().get_tag(&tag_name_ref);
-                if existing_tag.is_present() {
-                    precondition!("{} already exists", tag_name_ref.as_str());
-                }
-
-                tx.repo_mut()
-                    .set_tag_target(&tag_name_ref, RefTarget::normal(commit.id().clone()));
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "create {} pointing to commit {}",
-                        tag_name_ref.as_str(),
-                        ws.format_commit_id(commit.id()).hex
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 impl Mutation for DeleteRef {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        match self.r#ref {
-            StoreRef::RemoteBookmark {
-                branch_name,
-                remote_name,
-                ..
-            } => {
-                let mut tx = ws.start_transaction()?;
-
-                // forget the bookmark entirely - when target is absent, it's removed from the view
-                let remote_ref = RemoteRef {
-                    target: RefTarget::absent(),
-                    state: RemoteRefState::New,
-                };
-                let remote_name_ref = RemoteNameBuf::from(remote_name);
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let remote_ref_symbol = RemoteRefSymbol {
-                    name: &branch_name_ref,
-                    remote: &remote_name_ref,
-                };
-
-                tx.repo_mut()
-                    .set_remote_bookmark(remote_ref_symbol, remote_ref);
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "forget {}@{}",
-                        branch_name_ref.as_str(),
-                        remote_name_ref.as_str()
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-            StoreRef::LocalBookmark { branch_name, .. } => {
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let mut tx = ws.start_transaction()?;
-
-                tx.repo_mut()
-                    .set_local_bookmark_target(&branch_name_ref, RefTarget::absent());
-
-                match ws.finish_transaction(tx, format!("forget {}", branch_name_ref.as_str()))? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-            StoreRef::Tag { tag_name } => {
-                let tag_name_ref = RefNameBuf::from(tag_name);
-                let mut tx = ws.start_transaction()?;
-
-                tx.repo_mut()
-                    .set_tag_target(&tag_name_ref, RefTarget::absent());
-
-                match ws.finish_transaction(tx, format!("forget tag {}", tag_name_ref.as_str()))? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 // does not currently enforce fast-forwards
 impl Mutation for MoveRef {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let commit = ws.resolve_single_change(&self.to_id)?;
-
-        match self.r#ref {
-            StoreRef::RemoteBookmark {
-                branch_name,
-                remote_name,
-                ..
-            } => {
-                precondition!("Bookmark is remote: {branch_name}@{remote_name}")
-            }
-            StoreRef::LocalBookmark { branch_name, .. } => {
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let old_target = ws.view().get_local_bookmark(&branch_name_ref);
-                if old_target.is_absent() {
-                    precondition!("No such bookmark: {:?}", branch_name_ref.as_str());
-                }
-
-                tx.repo_mut().set_local_bookmark_target(
-                    &branch_name_ref,
-                    RefTarget::normal(commit.id().clone()),
-                );
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "point {:?} to commit {}",
-                        &branch_name_ref,
-                        commit.id().hex()
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-            StoreRef::Tag { tag_name } => {
-                let tag_name_ref = RefNameBuf::from(tag_name);
-                let old_target = ws.view().get_tag(&tag_name_ref);
-                if old_target.is_absent() {
-                    precondition!("No such tag: {:?}", tag_name_ref.as_str());
-                }
-
-                tx.repo_mut()
-                    .set_tag_target(&tag_name_ref, RefTarget::normal(commit.id().clone()));
-
-                match ws.finish_transaction(
-                    tx,
-                    format!(
-                        "point {:?} to commit {}",
-                        tag_name_ref.as_str(),
-                        commit.id().hex()
-                    ),
-                )? {
-                    Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                    None => Ok(MutationResult::Unchanged),
-                }
-            }
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
@@ -1336,36 +1004,8 @@ impl Mutation for GitFetch {
 // this is another case where it would be nice if we could reuse jj-cli's error messages
 impl Mutation for UndoOperation {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let head_op = op_walk::resolve_op_with_repo(ws.repo(), "@")?; // XXX this should be behind an abstraction, maybe reused in snapshot
-        let mut parent_ops = head_op.parents();
-
-        let Some(parent_op) = parent_ops.next().transpose()? else {
-            precondition!("Cannot undo repo initialization");
-        };
-
-        if parent_ops.next().is_some() {
-            precondition!("Cannot undo a merge operation");
-        };
-
-        let mut tx = ws.start_transaction()?;
-        let repo_loader = tx.base_repo().loader();
-        let head_repo = repo_loader.load_at(&head_op)?;
-        let parent_repo = repo_loader.load_at(&parent_op)?;
-        tx.repo_mut().merge(&head_repo, &parent_repo)?;
-        let restored_view = tx.repo().view().store_view().clone();
-        tx.repo_mut().set_view(restored_view);
-
-        match ws.finish_transaction(tx, format!("undo operation {}", head_op.id().hex()))? {
-            Some(new_status) => {
-                let working_copy = ws.get_commit(ws.wc_id())?;
-                let new_selection = ws.format_header(&working_copy, None)?;
-                Ok(MutationResult::UpdatedSelection {
-                    new_status,
-                    new_selection,
-                })
-            }
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 

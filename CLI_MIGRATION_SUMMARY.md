@@ -2,12 +2,20 @@
 
 ## What Was Done
 
-Successfully migrated 3 repository mutations from jj_lib library calls to jj CLI subprocess invocations:
+Successfully migrated **11 repository mutations** from jj_lib library calls to jj CLI subprocess invocations:
 
 ### Migrated Operations
 1. **AbandonRevisions** - Abandon commits and rebase descendants
 2. **DescribeRevision** - Update commit descriptions  
 3. **DuplicateRevisions** - Duplicate commits with new change IDs
+4. **CheckoutRevision** - Edit/checkout a revision in the working copy
+5. **CreateRevision** - Create new empty revisions with specified parents
+6. **UndoOperation** - Undo the most recent operation
+7. **TrackBranch** - Track remote bookmarks
+8. **UntrackBranch** - Untrack remote bookmarks
+9. **CreateRef** - Create bookmarks or tags
+10. **DeleteRef** - Delete bookmarks or tags
+11. **MoveRef** - Move bookmarks or tags to different commits
 
 ### New Infrastructure
 
@@ -84,13 +92,10 @@ ws.load_at_head()?;
 
 ## Remaining Work
 
-### High Priority (Easy CLI Mappings)
-- CheckoutRevision → `jj edit`
-- CreateRevision → `jj new`
+### High Priority (Easy CLI Mappings) - REMAINING
 - GitFetch → `jj git fetch`
 - GitPush → `jj git push`
-- Bookmark operations (Create/Delete/Move/Track/Untrack/Rename)
-- UndoOperation → `jj operation undo`
+- RenameBranch → `jj bookmark rename`
 
 ### Medium Priority (Requires Multiple Commands)
 - MoveRevision → `jj rebase -r`
@@ -124,9 +129,9 @@ ws.load_at_head()?;
 
 - `src/worker/mod.rs` - Added cli_executor and mutations_cli modules
 - `src/worker/cli_executor.rs` - New file (104 lines)
-- `src/worker/mutations_cli.rs` - New file (116 lines)
+- `src/worker/mutations_cli.rs` - New file (462 lines)
 - `src/worker/gui_util.rs` - Added cli_executor() method
-- `src/worker/mutations.rs` - Updated 3 mutation implementations (~70 lines removed)
+- `src/worker/mutations.rs` - Updated 11 mutation implementations (~300 lines removed)
 - `CLI_MIGRATION_PLAN.md` - Updated with completed migrations
 - `CLI_MIGRATION_SUMMARY.md` - This file
 
@@ -135,7 +140,7 @@ ws.load_at_head()?;
 Build status: ✅ Success
 ```
 cargo build --manifest-path src-tauri/Cargo.toml
-Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 12s
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.60s
 ```
 
-Warnings: 3 unused method warnings (expected for unused CLI helpers)
+Warnings: 8 warnings (unused functions and variables, not errors)
