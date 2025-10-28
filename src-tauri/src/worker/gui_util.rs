@@ -870,6 +870,13 @@ impl WorkspaceSession<'_> {
 
         Ok(rebased_commit_ids)
     }
+
+    /// Get a CLI executor for this workspace
+    pub fn cli_executor(&self) -> crate::worker::cli_executor::JjCliExecutor {
+        crate::worker::cli_executor::JjCliExecutor::new(
+            self.workspace.workspace_root().to_string_lossy().to_string()
+        )
+    }
 }
 
 impl WorkspaceData {

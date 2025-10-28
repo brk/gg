@@ -1,8 +1,10 @@
 //! Worker per window, owning repo data (jj-lib is not thread-safe)
 //! The worker thread is a state machine, running different handle functions based on loaded data
 
+mod cli_executor;
 mod gui_util;
 mod mutations;
+mod mutations_cli;
 mod queries;
 mod session;
 #[cfg(all(test, not(feature = "ts-rs")))]

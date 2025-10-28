@@ -47,42 +47,8 @@ macro_rules! precondition {
 
 impl Mutation for AbandonRevisions {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let abandoned_ids = self
-            .ids
-            .into_iter()
-            .map(|id| CommitId::try_from_hex(&id.hex).expect("frontend-validated id"))
-            .collect_vec();
-
-        if ws.check_immutable(abandoned_ids.clone())? {
-            precondition!("Some revisions are immutable");
-        }
-
-        for id in &abandoned_ids {
-            let commit = tx
-                .repo()
-                .store()
-                .get_commit(id)
-                .context("Failed to lookup commit")?;
-            tx.repo_mut().record_abandoned_commit(&commit);
-        }
-        tx.repo_mut().rebase_descendants()?;
-
-        let transaction_description = if abandoned_ids.len() == 1 {
-            format!("abandon commit {}", abandoned_ids[0].hex())
-        } else {
-            format!(
-                "abandon commit {} and {} more",
-                abandoned_ids[0].hex(),
-                abandoned_ids.len() - 1
-            )
-        };
-
-        match ws.finish_transaction(tx, transaction_description)? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
@@ -227,86 +193,15 @@ impl Mutation for CreateRevisionBetween {
 
 impl Mutation for DescribeRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let described = ws.resolve_single_change(&self.id)?;
-
-        if ws.check_immutable(vec![described.id().clone()])? {
-            precondition!("Revision {} is immutable", self.id.change.prefix);
-        }
-
-        if self.new_description == described.description() && !self.reset_author {
-            return Ok(MutationResult::Unchanged);
-        }
-
-        let mut commit_builder = tx
-            .repo_mut()
-            .rewrite_commit(&described)
-            .set_description(self.new_description);
-
-        if self.reset_author {
-            let new_author = commit_builder.committer().clone();
-            commit_builder = commit_builder.set_author(new_author);
-        }
-
-        commit_builder.write()?;
-
-        match ws.finish_transaction(tx, format!("describe commit {}", described.id().hex()))? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 impl Mutation for DuplicateRevisions {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let clonees = ws.resolve_multiple_changes(self.ids)?; // in reverse topological order
-        let num_clonees = clonees.len();
-        let mut clones: IndexMap<Commit, Commit> = IndexMap::new();
-
-        // toposort ensures that parents are duplicated first
-        for clonee in clonees.into_iter().rev() {
-            let clone_parents: Result<Vec<_>, _> = clonee
-                .parents()
-                .map_ok(|parent| {
-                    if let Some(cloned_parent) = clones.get(&parent) {
-                        cloned_parent
-                    } else {
-                        &parent
-                    }
-                    .id()
-                    .clone()
-                })
-                .collect();
-            let clone = tx
-                .repo_mut()
-                .rewrite_commit(&clonee)
-                .generate_new_change_id()
-                .set_parents(clone_parents?)
-                .write()?;
-            clones.insert(clonee, clone);
-        }
-
-        match ws.finish_transaction(tx, format!("duplicating {} commit(s)", num_clonees))? {
-            Some(new_status) => {
-                if num_clonees == 1 {
-                    let new_commit = clones
-                        .get_index(0)
-                        .ok_or(anyhow!("single source should have single copy"))?
-                        .1;
-                    let new_selection = ws.format_header(new_commit, None)?;
-                    Ok(MutationResult::UpdatedSelection {
-                        new_status,
-                        new_selection,
-                    })
-                } else {
-                    Ok(MutationResult::Updated { new_status })
-                }
-            }
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
