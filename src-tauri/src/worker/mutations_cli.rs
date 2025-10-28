@@ -799,3 +799,80 @@ impl crate::messages::CreateRevisionBetween {
         }
     }
 }
+
+/// CLI-based implementation of RenameBranch
+/// Maps to: jj bookmark rename <old> <new>
+impl crate::messages::RenameBranch {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let old_name = self.r#ref.as_branch()?;
+        
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj bookmark rename <old> <new>
+        let args: Vec<String> = vec![
+            "bookmark".to_string(),
+            "rename".to_string(),
+            old_name.to_string(),
+            self.new_name.clone(),
+        ];
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to rename bookmark via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of InsertRevision
+/// Maps to: jj rebase -r <target> -d <after> && jj rebase -s <before> -d <target>
+/// OR: jj new --insert-after <after> --insert-before <before> && jj rebase -r <target> -d <new>
+/// Actually, we can use: jj rebase -r <target> -A <after> -B <before>
+impl crate::messages::InsertRevision {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let target = ws.resolve_single_change(&self.id)?;
+        let before = ws.resolve_single_change(&self.before_id)?;
+        
+        if ws.check_immutable(vec![target.id().clone(), before.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: "Some revisions are immutable".to_string(),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Use jj rebase with --insert-after and --insert-before
+        // This moves target to be after 'after' and before 'before'
+        let args: Vec<String> = vec![
+            "rebase".to_string(),
+            "-r".to_string(),
+            self.id.commit.hex.clone(),
+            "--insert-after".to_string(),
+            self.after_id.commit.hex.clone(),
+            "--insert-before".to_string(),
+            self.before_id.commit.hex.clone(),
+        ];
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to insert revision via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}

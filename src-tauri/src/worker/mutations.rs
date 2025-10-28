@@ -118,50 +118,11 @@ impl Mutation for DuplicateRevisions {
 
 impl Mutation for InsertRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let target = ws
-            .resolve_single_change(&self.id)
-            .context("resolve change_id")?;
-        let before = ws
-            .resolve_single_change(&self.before_id)
-            .context("resolve before_id")?;
-        let after = ws
-            .resolve_single_change(&self.after_id)
-            .context("resolve after_id")?;
-
-        if ws.check_immutable(vec![target.id().clone(), before.id().clone()])? {
-            precondition!("Some revisions are immutable");
-        }
-
-        // rebase the target's children
-        let rebased_children = ws.disinherit_children(&mut tx, &target)?;
-
-        // update after, which may have been a descendant of target
-        let after_id = rebased_children
-            .get(after.id())
-            .unwrap_or(after.id())
-            .clone();
-
-        // rebase the target (which now has no children), then the new post-target tree atop it
-        let rebased_id = target.id().hex();
-        let target = block_on(rewrite::rebase_commit(
-            tx.repo_mut(),
-            target,
-            vec![after_id],
-        ))?;
-        block_on(rewrite::rebase_commit(
-            tx.repo_mut(),
-            before,
-            vec![target.id().clone()],
-        ))?;
-
-        match ws.finish_transaction(tx, format!("rebase commit {}", rebased_id))? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for MoveRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
@@ -211,39 +172,11 @@ impl Mutation for UntrackBranch {
 
 impl Mutation for RenameBranch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let old_name = self.r#ref.as_branch()?;
-        let old_name_ref = RefNameBuf::from(old_name);
-
-        let ref_target = ws.view().get_local_bookmark(&old_name_ref).clone();
-        if ref_target.is_absent() {
-            precondition!("No such bookmark: {}", old_name_ref.as_str());
-        }
-
-        let new_name_ref = RefNameBuf::from(self.new_name);
-        if ws.view().get_local_bookmark(&new_name_ref).is_present() {
-            precondition!("Bookmark already exists: {}", new_name_ref.as_str());
-        }
-
-        let mut tx = ws.start_transaction()?;
-
-        tx.repo_mut()
-            .set_local_bookmark_target(&new_name_ref, ref_target);
-        tx.repo_mut()
-            .set_local_bookmark_target(&old_name_ref, RefTarget::absent());
-
-        match ws.finish_transaction(
-            tx,
-            format!(
-                "rename {} to {}",
-                old_name_ref.as_str(),
-                new_name_ref.as_str()
-            ),
-        )? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for CreateRef {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
