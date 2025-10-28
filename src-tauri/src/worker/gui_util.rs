@@ -1,55 +1,55 @@
 //! Analogous to cli_util from jj-cli
 //! We reuse a bit of jj-cli code, but many of its modules include TUI concerns or are not suitable for a long-running server
 
-use std::{
-    cell::OnceCell,
-    collections::HashMap,
-    env::VarError,
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::Arc,
-};
-
-use anyhow::{Context, Result, anyhow};
-use chrono::TimeZone;
-use git2::Repository;
-use itertools::Itertools;
-use jj_cli::{cli_util::short_operation_hash, git_util::is_colocated_git_workspace, revset_util};
-use jj_lib::{
-    backend::{BackendError, ChangeId, CommitId},
-    commit::Commit,
-    conflicts::ConflictMarkerStyle,
-    default_index::{AsCompositeIndex, DefaultReadonlyIndex},
-    file_util, git,
-    git_backend::GitBackend,
-    gitignore::GitIgnoreFile,
-    id_prefix::{IdPrefixContext, IdPrefixIndex},
-    matchers::EverythingMatcher,
-    object_id::ObjectId,
-    op_heads_store,
-    operation::Operation,
-    ref_name::WorkspaceName,
-    repo::{ReadonlyRepo, Repo, RepoLoaderError, StoreFactories},
-    repo_path::{RepoPath, RepoPathUiConverter},
-    revset::{
-        self, DefaultSymbolResolver, Revset, RevsetAliasesMap, RevsetDiagnostics,
-        RevsetEvaluationError, RevsetExpression, RevsetExtensions, RevsetIteratorExt,
-        RevsetParseContext, RevsetResolutionError, RevsetWorkspaceContext, SymbolResolverExtension,
-        UserRevsetExpression,
+use {
+    super::WorkerSession,
+    crate::{
+        config::{GGSettings, read_config},
+        messages::{self, RevId},
     },
-    rewrite::{self, RebaseOptions, RebasedCommit},
-    settings::{HumanByteSize, UserSettings},
-    transaction::Transaction,
-    view::View,
-    working_copy::{CheckoutOptions, CheckoutStats, SnapshotOptions, WorkingCopyFreshness},
-    workspace::{self, DefaultWorkspaceLoaderFactory, Workspace, WorkspaceLoaderFactory},
-};
-use thiserror::Error;
-
-use super::WorkerSession;
-use crate::{
-    config::{GGSettings, read_config},
-    messages::{self, RevId},
+    anyhow::{Context, Result, anyhow},
+    chrono::TimeZone,
+    git2::Repository,
+    itertools::Itertools,
+    jj_cli::{cli_util::short_operation_hash, git_util::is_colocated_git_workspace, revset_util},
+    jj_lib::{
+        backend::{BackendError, ChangeId, CommitId},
+        commit::Commit,
+        default_index::DefaultReadonlyIndex,
+        file_util, git,
+        git_backend::GitBackend,
+        gitignore::GitIgnoreFile,
+        id_prefix::{IdPrefixContext, IdPrefixIndex},
+        matchers::EverythingMatcher,
+        object_id::ObjectId,
+        op_heads_store,
+        operation::Operation,
+        ref_name::WorkspaceName,
+        repo::{ReadonlyRepo, Repo, RepoLoaderError, StoreFactories},
+        repo_path::{RepoPath, RepoPathUiConverter},
+        revset::{
+            self, Revset, RevsetAliasesMap, RevsetDiagnostics, RevsetEvaluationError,
+            RevsetExpression, RevsetExtensions, RevsetIteratorExt, RevsetParseContext,
+            RevsetResolutionError, RevsetWorkspaceContext, SymbolResolver, SymbolResolverExtension,
+            UserRevsetExpression,
+        },
+        rewrite::{self, RebaseOptions, RebasedCommit},
+        settings::{HumanByteSize, UserSettings},
+        transaction::Transaction,
+        view::View,
+        working_copy::{CheckoutStats, SnapshotOptions, WorkingCopyFreshness},
+        workspace::{self, DefaultWorkspaceLoaderFactory, Workspace, WorkspaceLoaderFactory},
+    },
+    pollster::block_on,
+    std::{
+        cell::OnceCell,
+        collections::HashMap,
+        env::VarError,
+        path::{Path, PathBuf},
+        rc::Rc,
+        sync::Arc,
+    },
+    thiserror::Error,
 };
 
 /// jj-dependent state, available when a workspace is open
@@ -98,11 +98,11 @@ impl From<BackendError> for RevsetError {
 }
 
 impl WorkerSession {
-    pub fn load_directory(&mut self, cwd: &Path) -> Result<WorkspaceSession> {
+    pub fn load_directory(&mut self, cwd: &Path) -> Result<WorkspaceSession<'_>> {
         let factory = DefaultWorkspaceLoaderFactory;
         let loader = factory.create(find_workspace_dir(cwd))?;
 
-        let (settings, aliases_map) = read_config(loader.repo_path())?;
+        let (settings, aliases_map) = read_config(Some(loader.repo_path()))?;
 
         let workspace = loader.load(
             &settings,
@@ -129,7 +129,7 @@ impl WorkerSession {
             .get_index_at_op(operation.repo.operation(), workspace.repo_loader().store())?;
         let is_large =
             if let Some(default_index) = index.as_any().downcast_ref::<DefaultReadonlyIndex>() {
-                let stats = default_index.as_composite().stats();
+                let stats = default_index.stats();
                 stats.num_commits as i64 >= data.settings.query_large_repo_heuristic()
             } else {
                 true
@@ -398,8 +398,8 @@ impl WorkspaceSession<'_> {
             .expect("prefix context disambiguate_within()")
     }
 
-    fn resolver(&self) -> DefaultSymbolResolver {
-        DefaultSymbolResolver::new(
+    fn resolver(&self) -> SymbolResolver<'_> {
+        SymbolResolver::new(
             self.operation.repo.as_ref(),
             &([] as [Box<dyn SymbolResolverExtension>; 0]),
         )
@@ -691,7 +691,6 @@ impl WorkspaceSession<'_> {
             progress: None,
             max_new_file_size,
             start_tracking_matcher: &EverythingMatcher,
-            conflict_marker_style: ConflictMarkerStyle::default(),
         })?;
 
         let did_anything = new_tree_id != *wc_commit.tree_id();
@@ -735,9 +734,6 @@ impl WorkspaceSession<'_> {
                 self.operation.repo.op_id().clone(),
                 old_tree_id.as_ref(),
                 new_commit,
-                &CheckoutOptions {
-                    conflict_marker_style: ConflictMarkerStyle::default(),
-                },
             )?)
         } else {
             let locked_ws = self.workspace.start_working_copy_mutation()?;
@@ -846,9 +842,13 @@ impl WorkspaceSession<'_> {
 
             rebased_commit_ids.insert(
                 child_commit.id().clone(),
-                rewrite::rebase_commit(tx.repo_mut(), child_commit, new_child_parents?)?
-                    .id()
-                    .clone(),
+                block_on(rewrite::rebase_commit(
+                    tx.repo_mut(),
+                    child_commit,
+                    new_child_parents?,
+                ))?
+                .id()
+                .clone(),
             );
         }
         {

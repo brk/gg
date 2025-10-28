@@ -1,5 +1,28 @@
 # GG Changelog
-## [0.29.0](releases/tag/v0.29.0) 
+## [0.30.0](releases/tag/v0.30.0)
+This version is based on Jujutsu 0.29.
+
+### Changed
+- Add a "New empty revision before here" menu item
+- Add a ghost element for dragging changes in the left hand revision graph
+- Allow {Ctrl,Cmd}-clicking to select multiple revisions
+- Allow Shift-click to extend selected revision set
+- List selected revisions when dragging
+- Add a textbox below revision graph showing selected revset
+- Allow moving individual hunks from the right hand diff view
+- Enables change or commit ID to be copied by clicking
+- Make recent workspace list available on all platforms
+- Show recent workspaces if opening a workspace failed.
+- Support rendering git emojis in the history tree
+- Swap squash and restore icons (squash pushes changes down)
+
+### Fixed
+- Fix overscroll on MacOS
+- Compress path and action info when window is too narrow
+- Use from_utf8_lossy to prevent invalid utf-8 sequence errors (will render at least something instead of failing)
+- Enabled LTO for release builds, smaller and faster binary
+
+## [0.29.0](releases/tag/v0.29.0)
 This version is based on Jujutsu 0.29.
 
 ### Changed
@@ -14,22 +37,22 @@ This version is based on Jujutsu 0.29.
 - Describe box resizing on some platforms (thanks to @natural-selection1).
 - Flickering when dragging commits onto each other to rebase (thanks to @natural-selection1).
 
-## [0.27.0](releases/tag/v0.27.0) 
+## [0.27.0](releases/tag/v0.27.0)
 This version is based on Jujutsu 0.27.
 
 ### Added
 - Cmd/Ctrl-enter shortcut to save revision descriptions.
 
 ### Fixed
-- Suppress MacOS auto-capitalisation of branch/remote names. 
+- Suppress MacOS auto-capitalisation of branch/remote names.
 
-## [0.23.0](releases/tag/v0.23.0) 
+## [0.23.0](releases/tag/v0.23.0)
 This version is based on Jujutsu 0.23 and the recently-released Tauri 2.0.
 
 ### Changed
 - Branches have been renamed to bookmarks. The setting `gg.ui.mark-unpushed-branches` has changed to `mark-unpushed-bookmarks`, but the old one will still work as well.
 
-## [0.20.0](releases/tag/v0.20.0) 
+## [0.20.0](releases/tag/v0.20.0)
 This version is based on Jujutsu 0.20.
 
 ### Fixed
@@ -38,13 +61,13 @@ This version is based on Jujutsu 0.20.
 - Improved button/control font display on Linux.
 - Fixed a panic attempting to display delete/delete conflicts in the right pane.
 
-## [0.18.0](releases/tag/v0.18.0) 
+## [0.18.0](releases/tag/v0.18.0)
 This version is based on Jujutsu 0.18.
 
-## [0.17.0](releases/tag/v0.17.0) 
+## [0.17.0](releases/tag/v0.17.0)
 This version is compatible with Jujutsu 0.17.
 
-## [0.16.0](releases/tag/v0.16.0) 
+## [0.16.0](releases/tag/v0.16.0)
 This version is compatible with Jujutsu 0.16.
 
 ### Added
@@ -54,7 +77,7 @@ This version is compatible with Jujutsu 0.16.
 
 ### Fixed
 - Right-pane scrollbar wasn't responding to clicks.
-- Various design improvements. 
+- Various design improvements.
 
 ## [0.15.3](releases/tag/v0.15.3)
 
@@ -71,11 +94,11 @@ This version is compatible with Jujutsu 0.16.
   * `gg.queries.log-page-size` for tuning performance on large repositories.
   * `gg.ui.mark-unpushed-branches` to control whether local-only branches are called out.
 
-### Fixed 
-- GG now understands divergent changes, and can act on commits that have a shared change id. 
-  Note that if you do anything to such commits other than abandoning them, you're likely to 
+### Fixed
+- GG now understands divergent changes, and can act on commits that have a shared change id.
+  Note that if you do anything to such commits other than abandoning them, you're likely to
   create even more divergent commits!
-- The AppImage build wasn't picking up the working directory correctly. This is fixed, and 
+- The AppImage build wasn't picking up the working directory correctly. This is fixed, and
   you can also specify a workspace to open on the commandline as an alternative.
 - Watchman support (core.fsmonitor) was not enabled.
 - Various design improvements.
