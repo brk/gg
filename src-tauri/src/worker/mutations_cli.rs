@@ -6,8 +6,8 @@ use itertools::Itertools;
 
 use crate::messages::{
     AbandonRevisions, CheckoutRevision, CreateRef, CreateRevision, DeleteRef, DescribeRevision,
-    DuplicateRevisions, MoveRef, MutationResult, StoreRef, TrackBranch, UndoOperation,
-    UntrackBranch,
+    DuplicateRevisions, GitFetch, GitPush, MoveRef, MutationResult, StoreRef, TrackBranch,
+    UndoOperation, UntrackBranch,
 };
 
 use super::gui_util::WorkspaceSession;
@@ -481,6 +481,321 @@ impl MoveRef {
                     Ok(MutationResult::Unchanged)
                 }
             }
+        }
+    }
+}
+
+/// CLI-based implementation of GitFetch
+impl GitFetch {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let cli = ws.cli_executor();
+        
+        // Collect all arguments as owned strings to avoid lifetime issues
+        let mut args: Vec<String> = vec!["git".to_string(), "fetch".to_string()];
+        
+        match self {
+            GitFetch::AllBookmarks { remote_name } => {
+                // Fetch all branches from a specific remote
+                args.push("--remote".to_string());
+                args.push(remote_name);
+            }
+            GitFetch::AllRemotes { branch_ref } => {
+                // Fetch a specific branch from all remotes
+                let branch_name = branch_ref.as_branch()?.to_string();
+                args.push("--branch".to_string());
+                args.push(branch_name);
+            }
+            GitFetch::RemoteBookmark {
+                remote_name,
+                branch_ref,
+            } => {
+                // Fetch a specific branch from a specific remote
+                let branch_name = branch_ref.as_branch()?.to_string();
+                args.push("--remote".to_string());
+                args.push(remote_name);
+                args.push("--branch".to_string());
+                args.push(branch_name);
+            }
+        }
+        
+        // Convert to &str for execute
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to fetch from git remote via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of GitPush
+impl GitPush {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let cli = ws.cli_executor();
+        
+        // Collect all arguments as owned strings to avoid lifetime issues
+        let mut args: Vec<String> = vec!["git".to_string(), "push".to_string()];
+        
+        match self {
+            GitPush::AllBookmarks { remote_name } => {
+                // Push all tracked bookmarks to a specific remote
+                args.push("--remote".to_string());
+                args.push(remote_name);
+                args.push("--tracked".to_string());
+            }
+            GitPush::AllRemotes { branch_ref } => {
+                // Push a specific branch to all remotes
+                let branch_name = branch_ref.as_branch()?.to_string();
+                args.push("--bookmark".to_string());
+                args.push(branch_name);
+            }
+            GitPush::RemoteBookmark {
+                remote_name,
+                branch_ref,
+            } => {
+                // Push a specific branch to a specific remote
+                let branch_name = branch_ref.as_branch()?.to_string();
+                args.push("--remote".to_string());
+                args.push(remote_name);
+                args.push("--bookmark".to_string());
+                args.push(branch_name);
+            }
+        }
+        
+        // Convert to &str for execute
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to push to git remote via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of MoveRevision  
+/// Maps to: jj rebase -r <revision> -d <destination>
+impl crate::messages::MoveRevision {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let target = ws.resolve_single_change(&self.id)?;
+        
+        if ws.check_immutable(vec![target.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: format!("Revision {} is immutable", self.id.change.prefix),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj rebase -r <revision> -d <parent1> -d <parent2> ...
+        let mut args: Vec<String> = vec!["rebase".to_string(), "-r".to_string(), self.id.commit.hex.clone()];
+        
+        for parent_id in &self.parent_ids {
+            args.push("-d".to_string());
+            args.push(parent_id.commit.hex.clone());
+        }
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to rebase revision via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of MoveSource
+/// Maps to: jj rebase -s <source> -d <destination>
+impl crate::messages::MoveSource {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let target = ws.resolve_single_change(&self.id)?;
+        
+        if ws.check_immutable(vec![target.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: format!("Revision {} is immutable", self.id.change.prefix),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj rebase -s <source> -d <parent1> -d <parent2> ...
+        // Note: parent_ids are CommitId (not RevId) for MoveSource
+        let mut args: Vec<String> = vec!["rebase".to_string(), "-s".to_string(), self.id.commit.hex.clone()];
+        
+        for parent_id in &self.parent_ids {
+            args.push("-d".to_string());
+            args.push(parent_id.hex.clone());  // CommitId.hex, not .commit.hex
+        }
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to rebase source via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of CopyChanges
+/// Maps to: jj restore --from <from> --into <to> [paths]
+impl crate::messages::CopyChanges {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        let to_commit = ws.resolve_single_change(&self.to_id)?;
+        
+        if ws.check_immutable(vec![to_commit.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: "Revisions are immutable".to_string(),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj restore --from <from> --into <to> [paths]
+        // Note: from_id is CommitId, to_id is RevId
+        let mut args: Vec<String> = vec![
+            "restore".to_string(),
+            "--from".to_string(),
+            self.from_id.hex.clone(),  // CommitId.hex
+            "--into".to_string(),
+            self.to_id.commit.hex.clone(),  // RevId.commit.hex
+        ];
+        
+        // Add paths if specified
+        for path in &self.paths {
+            args.push(path.repo_path.clone());
+        }
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to restore changes via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of MoveChanges
+/// Maps to: jj squash --from <from> --into <to> [paths]
+impl crate::messages::MoveChanges {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        // Note: to_id is CommitId for MoveChanges
+        let to_id_hex = &self.to_id.hex;
+        let to_commit = ws.resolve_single_commit(&self.to_id)?;
+        
+        if ws.check_immutable(vec![to_commit.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: "Revisions are immutable".to_string(),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj squash --from <from> --into <to> [paths]
+        // Note: from_id is RevId, to_id is CommitId
+        let mut args: Vec<String> = vec![
+            "squash".to_string(),
+            "--from".to_string(),
+            self.from_id.commit.hex.clone(),  // RevId.commit.hex
+            "--into".to_string(),
+            to_id_hex.clone(),  // CommitId.hex
+        ];
+        
+        // Add paths if specified
+        for path in &self.paths {
+            args.push(path.repo_path.clone());
+        }
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to squash changes via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            Ok(MutationResult::Updated {
+                new_status: ws.format_status(),
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
+        }
+    }
+}
+
+/// CLI-based implementation of CreateRevisionBetween
+/// Maps to: jj new --insert-after A --insert-before B
+impl crate::messages::CreateRevisionBetween {
+    pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
+        // Check immutability of the 'before' revision
+        let before_commit = ws.resolve_single_change(&self.before_id)?;
+        
+        if ws.check_immutable(vec![before_commit.id().clone()])? {
+            return Ok(MutationResult::PreconditionError {
+                message: "'Before' revision is immutable".to_string(),
+            });
+        }
+
+        let cli = ws.cli_executor();
+        
+        // Build arguments: jj new --insert-after <after> --insert-before <before>
+        // Note: after_id is CommitId, before_id is RevId
+        let args: Vec<String> = vec![
+            "new".to_string(),
+            "--insert-after".to_string(),
+            self.after_id.hex.clone(),  // CommitId.hex
+            "--insert-before".to_string(),
+            self.before_id.commit.hex.clone(),  // RevId.commit.hex
+        ];
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        cli.execute(&args_str)
+            .context("Failed to create revision between via CLI")?;
+        
+        let changed = ws.load_at_head()?;
+        
+        if changed {
+            // Get the new working copy commit (the newly created revision)
+            let new_commit = ws.get_commit(ws.wc_id())?;
+            let new_selection = ws.format_header(&new_commit, Some(false))?;
+            Ok(MutationResult::UpdatedSelection {
+                new_status: ws.format_status(),
+                new_selection,
+            })
+        } else {
+            Ok(MutationResult::Unchanged)
         }
     }
 }

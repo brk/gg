@@ -97,46 +97,8 @@ impl Mutation for CreateRevision {
 
 impl Mutation for CreateRevisionBetween {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        eprintln!("CreateREvisionBetween execute()");
-        let mut tx = ws.start_transaction()?;
-
-        let parent_id = ws
-            .resolve_single_commit(&self.after_id)
-            .context("resolve after_id")?;
-        let parent_ids = vec![parent_id.id().clone()];
-        let parent_commits = vec![parent_id];
-        let merged_tree = block_on(rewrite::merge_commit_trees(tx.repo(), &parent_commits))?;
-
-        let new_commit = tx
-            .repo_mut()
-            .new_commit(parent_ids, merged_tree.id())
-            .write()?;
-
-        let before_commit = ws
-            .resolve_single_change(&self.before_id)
-            .context("resolve before_id")?;
-        if ws.check_immutable(vec![before_commit.id().clone()])? {
-            precondition!("'Before' revision is immutable");
-        }
-
-        block_on(rewrite::rebase_commit(
-            tx.repo_mut(),
-            before_commit,
-            vec![new_commit.id().clone()],
-        ))?;
-
-        tx.repo_mut().edit(ws.name().to_owned(), &new_commit)?;
-
-        match ws.finish_transaction(tx, "new empty commit")? {
-            Some(new_status) => {
-                let new_selection = ws.format_header(&new_commit, Some(false))?;
-                Ok(MutationResult::UpdatedSelection {
-                    new_status,
-                    new_selection,
-                })
-            }
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
@@ -203,184 +165,35 @@ impl Mutation for InsertRevision {
 
 impl Mutation for MoveRevision {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let target = ws.resolve_single_change(&self.id)?;
-        let parents = ws.resolve_multiple_changes(self.parent_ids)?;
-
-        if ws.check_immutable(vec![target.id().clone()])? {
-            precondition!("Revision {} is immutable", self.id.change.prefix);
-        }
-
-        // rebase the target's children
-        let rebased_children = ws.disinherit_children(&mut tx, &target)?;
-
-        // update parents, which may have been descendants of the target
-        let parent_ids: Vec<_> = parents
-            .iter()
-            .map(|new_parent| {
-                rebased_children
-                    .get(new_parent.id())
-                    .unwrap_or(new_parent.id())
-                    .clone()
-            })
-            .collect();
-
-        // rebase the target itself
-        let rebased_id = target.id().hex();
-        block_on(rewrite::rebase_commit(tx.repo_mut(), target, parent_ids))?;
-
-        match ws.finish_transaction(tx, format!("rebase commit {}", rebased_id))? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for MoveSource {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let target = ws.resolve_single_change(&self.id)?;
-        let parent_ids = ws
-            .resolve_multiple_commits(&self.parent_ids)?
-            .into_iter()
-            .map(|commit| commit.id().clone())
-            .collect();
-
-        if ws.check_immutable(vec![target.id().clone()])? {
-            precondition!("Revision {} is immutable", self.id.change.prefix);
-        }
-
-        // just rebase the target, which will also rebase its descendants
-        let rebased_id = target.id().hex();
-        block_on(rewrite::rebase_commit(tx.repo_mut(), target, parent_ids))?;
-
-        match ws.finish_transaction(tx, format!("rebase commit {}", rebased_id))? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for MoveChanges {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let from = ws.resolve_single_change(&self.from_id)?;
-        let mut to = ws.resolve_single_commit(&self.to_id)?;
-        let matcher = build_matcher(&self.paths)?;
-
-        if ws.check_immutable(vec![from.id().clone(), to.id().clone()])? {
-            precondition!("Revisions are immutable");
-        }
-
-        // construct a split tree and a remainder tree by copying changes from child to parent and from parent to child
-        let from_tree = from.tree()?;
-        let from_parents: Result<Vec<_>, _> = from.parents().collect();
-        let parent_tree = block_on(rewrite::merge_commit_trees(tx.repo(), &from_parents?))?;
-        let split_tree_id = block_on(rewrite::restore_tree(
-            &from_tree,
-            &parent_tree,
-            matcher.as_ref(),
-        ))?;
-        let split_tree = tx.repo().store().get_root_tree(&split_tree_id)?;
-        let remainder_tree_id = block_on(rewrite::restore_tree(
-            &parent_tree,
-            &from_tree,
-            matcher.as_ref(),
-        ))?;
-        let remainder_tree = tx.repo().store().get_root_tree(&remainder_tree_id)?;
-
-        // abandon or rewrite source
-        let abandon_source = remainder_tree.id() == parent_tree.id();
-        if abandon_source {
-            tx.repo_mut().record_abandoned_commit(&from);
-        } else {
-            tx.repo_mut()
-                .rewrite_commit(&from)
-                .set_tree_id(remainder_tree.id().clone())
-                .write()?;
-        }
-
-        // rebase descendants of source, which may include destination
-        if tx.repo().index().is_ancestor(from.id(), to.id()) {
-            let mut rebase_map = std::collections::HashMap::new();
-            tx.repo_mut().rebase_descendants_with_options(
-                &RebaseOptions::default(),
-                |old_commit, rebased_commit| {
-                    rebase_map.insert(
-                        old_commit.id().clone(),
-                        match rebased_commit {
-                            RebasedCommit::Rewritten(new_commit) => new_commit.id().clone(),
-                            RebasedCommit::Abandoned { parent_id } => parent_id,
-                        },
-                    );
-                },
-            )?;
-            let rebased_to_id = rebase_map
-                .get(to.id())
-                .ok_or_else(|| anyhow!("descendant to_commit not found in rebase map"))?
-                .clone();
-            to = tx.repo().store().get_commit(&rebased_to_id)?;
-        }
-
-        // apply changes to destination
-        let to_tree = to.tree()?;
-        let new_to_tree = block_on(to_tree.merge(parent_tree, split_tree))?;
-        let description = combine_messages(&from, &to, abandon_source);
-        tx.repo_mut()
-            .rewrite_commit(&to)
-            .set_tree_id(new_to_tree.id().clone())
-            .set_description(description)
-            .write()?;
-
-        match ws.finish_transaction(
-            tx,
-            format!("move changes from {} to {}", from.id().hex(), to.id().hex()),
-        )? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for CopyChanges {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let from_tree = ws.resolve_single_commit(&self.from_id)?.tree()?;
-        let to = ws.resolve_single_change(&self.to_id)?;
-        let matcher = build_matcher(&self.paths)?;
-
-        if ws.check_immutable(vec![to.id().clone()])? {
-            precondition!("Revisions are immutable");
-        }
-
-        // construct a restore tree - the destination with some portions overwritten by the source
-        let to_tree = to.tree()?;
-        let new_to_tree_id = block_on(rewrite::restore_tree(
-            &from_tree,
-            &to_tree,
-            matcher.as_ref(),
-        ))?;
-        if &new_to_tree_id == to.tree_id() {
-            Ok(MutationResult::Unchanged)
-        } else {
-            tx.repo_mut()
-                .rewrite_commit(&to)
-                .set_tree_id(new_to_tree_id)
-                .write()?;
-
-            tx.repo_mut().rebase_descendants()?;
-
-            match ws.finish_transaction(tx, format!("restore into commit {}", to.id().hex()))? {
-                Some(new_status) => Ok(MutationResult::Updated { new_status }),
-                None => Ok(MutationResult::Unchanged),
-            }
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
+
 
 impl Mutation for TrackBranch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
@@ -738,270 +551,17 @@ fn update_tree_entry(
 
 impl Mutation for GitPush {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        // determine bookmarks to push, recording the old and new commits
-        let mut remote_branch_updates: Vec<(&str, Vec<(RefNameBuf, refs::BookmarkPushUpdate)>)> =
-            Vec::new();
-        let remote_branch_refs: Vec<_> = match &*self {
-            GitPush::AllBookmarks { remote_name } => {
-                let remote_name_ref = RemoteNameBuf::from(remote_name);
-                let mut branch_updates = Vec::new();
-                for (branch_name, targets) in ws.view().local_remote_bookmarks(&remote_name_ref) {
-                    if !targets.remote_ref.is_tracked() {
-                        continue;
-                    }
-
-                    match classify_branch_push(branch_name.as_str(), remote_name, targets) {
-                        Err(message) => return Ok(MutationResult::PreconditionError { message }),
-                        Ok(None) => (),
-                        Ok(Some(update)) => branch_updates.push((branch_name.to_owned(), update)),
-                    }
-                }
-                remote_branch_updates.push((remote_name, branch_updates));
-
-                ws.view()
-                    .remote_bookmarks(&remote_name_ref)
-                    .map(|(name, remote_ref)| (name.to_owned(), remote_ref))
-                    .collect()
-            }
-            GitPush::AllRemotes { branch_ref } => {
-                let branch_name = branch_ref.as_branch()?;
-                let branch_name_ref = RefNameBuf::from(branch_name);
-
-                let mut remote_branch_refs = Vec::new();
-                for (remote_name, group) in ws
-                    .view()
-                    .all_remote_bookmarks()
-                    .filter_map(|(remote_ref_symbol, remote_ref)| {
-                        if remote_ref.is_tracked() && remote_ref_symbol.name == branch_name_ref {
-                            Some((remote_ref_symbol.remote, remote_ref))
-                        } else {
-                            None
-                        }
-                    })
-                    .chunk_by(|(remote_name, _)| *remote_name)
-                    .into_iter()
-                {
-                    let mut branch_updates = Vec::new();
-                    for (_, remote_ref) in group {
-                        let targets = LocalAndRemoteRef {
-                            local_target: ws.view().get_local_bookmark(&branch_name_ref),
-                            remote_ref,
-                        };
-                        match classify_branch_push(branch_name, remote_name.as_str(), targets) {
-                            Err(message) => {
-                                return Ok(MutationResult::PreconditionError { message });
-                            }
-                            Ok(None) => (),
-                            Ok(Some(update)) => {
-                                branch_updates.push((RefNameBuf::from(branch_name), update))
-                            }
-                        }
-                        remote_branch_refs.push((RefNameBuf::from(branch_name), remote_ref));
-                    }
-                    remote_branch_updates.push((remote_name.as_str(), branch_updates));
-                }
-
-                remote_branch_refs
-            }
-            GitPush::RemoteBookmark {
-                remote_name,
-                branch_ref,
-            } => {
-                let branch_name = branch_ref.as_branch()?;
-                let branch_name_ref = RefNameBuf::from(branch_name);
-                let local_target = ws.view().get_local_bookmark(&branch_name_ref);
-                let remote_name_ref = RemoteNameBuf::from(remote_name);
-                let remote_ref_symbol = RemoteRefSymbol {
-                    name: &branch_name_ref,
-                    remote: &remote_name_ref,
-                };
-                let remote_ref = ws.view().get_remote_bookmark(remote_ref_symbol);
-
-                match classify_branch_push(
-                    branch_name,
-                    remote_name,
-                    LocalAndRemoteRef {
-                        local_target,
-                        remote_ref,
-                    },
-                ) {
-                    Err(message) => return Ok(MutationResult::PreconditionError { message }),
-                    Ok(None) => (),
-                    Ok(Some(update)) => {
-                        remote_branch_updates
-                            .push((remote_name, vec![(RefNameBuf::from(branch_name), update)]));
-                    }
-                }
-
-                vec![(
-                    RefNameBuf::from(branch_name),
-                    ws.view().get_remote_bookmark(remote_ref_symbol),
-                )]
-            }
-        };
-
-        // check for conflicts
-        let mut new_heads = vec![];
-        for (_, branch_updates) in &mut remote_branch_updates {
-            for (_, update) in branch_updates {
-                if let Some(new_target) = &update.new_target {
-                    new_heads.push(new_target.clone());
-                }
-            }
-        }
-
-        let mut old_heads = remote_branch_refs
-            .into_iter()
-            .flat_map(|(_, old_head)| old_head.target.added_ids())
-            .cloned()
-            .collect_vec();
-        if old_heads.is_empty() {
-            old_heads.push(ws.repo().store().root_commit_id().clone());
-        }
-
-        for commit in revset::walk_revs(ws.repo(), &new_heads, &old_heads)?
-            .iter()
-            .commits(ws.repo().store())
-        {
-            let commit = commit?;
-            let mut reasons = vec![];
-            if commit.description().is_empty() {
-                reasons.push("it has no description");
-            }
-            if commit.author().name.is_empty()
-                || commit.author().name == UserSettings::USER_NAME_PLACEHOLDER
-                || commit.author().email.is_empty()
-                || commit.author().email == UserSettings::USER_EMAIL_PLACEHOLDER
-                || commit.committer().name.is_empty()
-                || commit.committer().name == UserSettings::USER_NAME_PLACEHOLDER
-                || commit.committer().email.is_empty()
-                || commit.committer().email == UserSettings::USER_EMAIL_PLACEHOLDER
-            {
-                reasons.push("it has no author and/or committer set");
-            }
-            if commit.has_conflict()? {
-                reasons.push("it has conflicts");
-            }
-            if !reasons.is_empty() {
-                precondition!(
-                    "Won't push revision {} since {}",
-                    ws.format_change_id(commit.change_id()).prefix,
-                    reasons.join(" and ")
-                );
-            }
-        }
-
-        // push to each remote
-        for (remote_name, branch_updates) in remote_branch_updates.into_iter() {
-            let targets = GitBranchPushTargets { branch_updates };
-            let git_settings = ws.data.settings.git_settings()?;
-
-            ws.session.callbacks.with_git(tx.repo_mut(), &|repo, cb| {
-                git::push_branches(
-                    repo,
-                    &git_settings,
-                    RemoteName::new(remote_name),
-                    &targets,
-                    cb,
-                )?;
-                Ok(())
-            })?;
-        }
-
-        match ws.finish_transaction(
-            tx,
-            match *self {
-                GitPush::AllBookmarks { remote_name } => {
-                    format!("push all tracked branches to git remote {}", remote_name)
-                }
-                GitPush::AllRemotes { branch_ref } => {
-                    format!(
-                        "push {} to all tracked git remotes",
-                        branch_ref.as_branch()?
-                    )
-                }
-                GitPush::RemoteBookmark {
-                    remote_name,
-                    branch_ref,
-                } => {
-                    format!(
-                        "push {} to git remote {}",
-                        branch_ref.as_branch()?,
-                        remote_name
-                    )
-                }
-            },
-        )? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
 
 impl Mutation for GitFetch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let mut tx = ws.start_transaction()?;
-
-        let git_repo = match ws.git_repo()? {
-            Some(git_repo) => git_repo,
-            None => precondition!("No git backend"),
-        };
-
-        let mut remote_patterns = Vec::new();
-        match *self {
-            GitFetch::AllBookmarks { remote_name } => {
-                remote_patterns.push((remote_name, None));
-            }
-            GitFetch::AllRemotes { branch_ref } => {
-                let branch_name = branch_ref.as_branch()?;
-                for remote_name in git_repo
-                    .remotes()?
-                    .into_iter()
-                    .filter_map(|remote| remote.map(|remote| remote.to_owned()))
-                {
-                    remote_patterns.push((remote_name, Some(branch_name.to_owned())));
-                }
-            }
-            GitFetch::RemoteBookmark {
-                remote_name,
-                branch_ref,
-            } => {
-                let branch_name = branch_ref.as_branch()?;
-                remote_patterns.push((remote_name, Some(branch_name.to_owned())));
-            }
-        }
-        let git_settings = ws.data.settings.git_settings()?;
-
-        for (remote_name, pattern) in remote_patterns {
-            ws.session.callbacks.with_git(tx.repo_mut(), &|repo, cb| {
-                let remote_name = RemoteName::new(&remote_name);
-                let refspecs = expand_fetch_refspecs(
-                    &remote_name,
-                    vec![
-                        pattern
-                            .clone()
-                            .map(StringPattern::exact)
-                            .unwrap_or_else(StringPattern::everything),
-                    ],
-                )?;
-                let mut fetcher = git::GitFetch::new(repo, &git_settings)?;
-                fetcher
-                    .fetch(&remote_name, refspecs, cb, None, None)
-                    .context("failed to fetch")?;
-                Ok(())
-            })?;
-        }
-
-        match ws.finish_transaction(tx, "fetch from git remote(s)".to_string())? {
-            Some(new_status) => Ok(MutationResult::Updated { new_status }),
-            None => Ok(MutationResult::Unchanged),
-        }
+        // Use CLI-based implementation
+        self.execute_cli(ws)
     }
 }
-
-// this is another case where it would be nice if we could reuse jj-cli's error messages
 impl Mutation for UndoOperation {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         // Use CLI-based implementation

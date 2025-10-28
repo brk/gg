@@ -2,9 +2,9 @@
 
 ## What Was Done
 
-Successfully migrated **11 repository mutations** from jj_lib library calls to jj CLI subprocess invocations:
+Successfully migrated **18 repository mutations** from jj_lib library calls to jj CLI subprocess invocations:
 
-### Migrated Operations
+### Phase 1 - Simple Operations (13 operations)
 1. **AbandonRevisions** - Abandon commits and rebase descendants
 2. **DescribeRevision** - Update commit descriptions  
 3. **DuplicateRevisions** - Duplicate commits with new change IDs
@@ -16,6 +16,15 @@ Successfully migrated **11 repository mutations** from jj_lib library calls to j
 9. **CreateRef** - Create bookmarks or tags
 10. **DeleteRef** - Delete bookmarks or tags
 11. **MoveRef** - Move bookmarks or tags to different commits
+12. **GitFetch** - Fetch from git remotes
+13. **GitPush** - Push to git remotes
+
+### Phase 2 - Complex Operations (5 operations)
+14. **MoveRevision** - Rebase a single revision to new parents
+15. **MoveSource** - Rebase a revision and its descendants
+16. **CopyChanges** - Restore file changes from one revision to another
+17. **MoveChanges** - Squash file changes from one revision into another
+18. **CreateRevisionBetween** - Insert a new revision between two existing ones
 
 ### New Infrastructure
 
@@ -92,21 +101,14 @@ ws.load_at_head()?;
 
 ## Remaining Work
 
-### High Priority (Easy CLI Mappings) - REMAINING
-- GitFetch → `jj git fetch`
-- GitPush → `jj git push`
-- RenameBranch → `jj bookmark rename`
+### ⚠️ Phase 1 Remaining (1 operation)
+- RenameBranch → `jj bookmark rename` (should be easy to add)
 
-### Medium Priority (Requires Multiple Commands)
-- MoveRevision → `jj rebase -r`
-- MoveSource → `jj rebase -s`
-- InsertRevision → `jj new --insert-after/before`
-- CopyChanges → `jj restore`
-- MoveChanges → `jj squash`
+### ⚠️ Phase 2 Remaining (1 operation)  
+- InsertRevision → `jj new --insert-after/before` (similar to CreateRevisionBetween, should be straightforward)
 
-### Keep as Library (No Good CLI Mapping)
-- BackoutRevisions - Complex semantics
-- CreateRevisionBetween - Multi-step operation
+### ❌ Keep as Library (3 operations)
+- BackoutRevisions - Complex semantics, may need custom logic
 - MoveHunk - Requires interactive diff editing
 - StoreRef - Internal state management
 
@@ -129,9 +131,9 @@ ws.load_at_head()?;
 
 - `src/worker/mod.rs` - Added cli_executor and mutations_cli modules
 - `src/worker/cli_executor.rs` - New file (104 lines)
-- `src/worker/mutations_cli.rs` - New file (462 lines)
+- `src/worker/mutations_cli.rs` - New file (~800 lines)
 - `src/worker/gui_util.rs` - Added cli_executor() method
-- `src/worker/mutations.rs` - Updated 11 mutation implementations (~300 lines removed)
+- `src/worker/mutations.rs` - Updated 18 mutation implementations (~540 lines removed)
 - `CLI_MIGRATION_PLAN.md` - Updated with completed migrations
 - `CLI_MIGRATION_SUMMARY.md` - This file
 
@@ -140,7 +142,7 @@ ws.load_at_head()?;
 Build status: ✅ Success
 ```
 cargo build --manifest-path src-tauri/Cargo.toml
-Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.60s
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.31s
 ```
 
-Warnings: 8 warnings (unused functions and variables, not errors)
+Warnings: 16 warnings (unused functions and variables, not errors)
