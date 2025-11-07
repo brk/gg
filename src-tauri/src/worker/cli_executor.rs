@@ -18,10 +18,12 @@ impl JjCliExecutor {
     /// # Arguments
     /// * `args` - Command arguments (e.g., &["abandon", "abc123"])
     pub fn execute(&self, args: &[&str]) -> Result<String> {
+        //println!("RUNNING jj {}", args.join(" "));
         let mut cmd = Command::new("jj");
 
-        // Set repository path
-        cmd.arg("-R").arg(&self.repo_path);
+        // With the -R flag one must specify repo-relative paths with
+        // `root:"relative/path"`; it's simpler to just run jj from the root.
+        cmd.current_dir(&self.repo_path);
 
         // Disable color output for easier parsing
         cmd.arg("--color=never");
