@@ -70,7 +70,7 @@ impl DescribeRevision {
         }
 
         let cli = ws.cli_executor();
-        let mut args = vec!["describe", "-m", &self.new_description, &self.id.commit.hex];
+        let args = vec!["describe", "-m", &self.new_description, &self.id.commit.hex];
         
         // Note: reset_author would need additional handling as CLI doesn't have direct flag
         // This is a limitation of the CLI approach
@@ -312,7 +312,7 @@ impl UntrackBranch {
 impl CreateRef {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         let cli = ws.cli_executor();
-        let commit = ws.resolve_single_change(&self.id)?;
+        let _commit = ws.resolve_single_change(&self.id)?;
         
         match self.r#ref {
             StoreRef::RemoteBookmark {
@@ -430,7 +430,7 @@ impl DeleteRef {
 impl MoveRef {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         let cli = ws.cli_executor();
-        let commit = ws.resolve_single_change(&self.to_id)?;
+        let _commit = ws.resolve_single_change(&self.to_id)?;
         
         match self.r#ref {
             StoreRef::RemoteBookmark {
@@ -723,7 +723,6 @@ impl crate::messages::MoveChanges {
         }
 
         let cli = ws.cli_executor();
-        
         // Build arguments: jj squash --from <from> --into <to> [paths]
         // Note: from_id is RevId, to_id is CommitId
         let mut args: Vec<String> = vec![
@@ -738,9 +737,10 @@ impl crate::messages::MoveChanges {
         for path in &self.paths {
             args.push(path.repo_path.clone());
         }
-        
+
         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        cli.execute(&args_str)
+
+        let res = cli.execute(&args_str)
             .context("Failed to squash changes via CLI")?;
         
         let changed = ws.load_at_head()?;

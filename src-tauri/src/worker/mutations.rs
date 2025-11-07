@@ -1,30 +1,17 @@
-use std::fmt::Display;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
-use indexmap::IndexMap;
-use itertools::Itertools;
+use anyhow::{Result, anyhow};
 use jj_lib::backend::{CopyId, FileId, MergedTreeId, TreeValue};
-use jj_lib::git::expand_fetch_refspecs;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::{MergedTree, MergedTreeBuilder};
-use jj_lib::ref_name::{RefNameBuf, RemoteName, RemoteNameBuf, RemoteRefSymbol};
 use jj_lib::{
     backend::{BackendError, CommitId},
     commit::Commit,
-    git::{self, GitBranchPushTargets, REMOTE_NAME_FOR_LOCAL_GIT_REPO},
-    matchers::{EverythingMatcher, FilesMatcher, Matcher},
     object_id::ObjectId as ObjectIdTrait,
-    op_store::{RefTarget, RemoteRef, RemoteRefState},
-    op_walk,
-    refs::{self, BookmarkPushAction, BookmarkPushUpdate, LocalAndRemoteRef},
     repo::Repo,
     repo_path::RepoPath,
-    revset::{self, RevsetIteratorExt},
-    rewrite::{self, RebaseOptions, RebasedCommit},
-    settings::UserSettings,
+    rewrite::{self},
     store::Store,
-    str_util::StringPattern,
 };
 use pollster::block_on;
 use tokio::io::AsyncReadExt as _;
@@ -33,7 +20,7 @@ use crate::messages::{
     AbandonRevisions, BackoutRevisions, CheckoutRevision, CopyChanges, CreateRef, CreateRevision,
     CreateRevisionBetween, DeleteRef, DescribeRevision, DuplicateRevisions, GitFetch, GitPush,
     InsertRevision, MoveChanges, MoveHunk, MoveRef, MoveRevision, MoveSource, MutationResult,
-    RenameBranch, StoreRef, TrackBranch, TreePath, UndoOperation, UntrackBranch,
+    RenameBranch, TrackBranch, UndoOperation, UntrackBranch,
 };
 
 use super::Mutation;
@@ -484,76 +471,17 @@ fn update_tree_entry(
 
 impl Mutation for GitPush {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        // Use CLI-based implementation
         self.execute_cli(ws)
     }
 }
 
 impl Mutation for GitFetch {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        // Use CLI-based implementation
         self.execute_cli(ws)
     }
 }
 impl Mutation for UndoOperation {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        // Use CLI-based implementation
         self.execute_cli(ws)
-    }
-}
-
-fn combine_messages(source: &Commit, destination: &Commit, abandon_source: bool) -> String {
-    if abandon_source {
-        if source.description().is_empty() {
-            destination.description().to_owned()
-        } else if destination.description().is_empty() {
-            source.description().to_owned()
-        } else {
-            destination.description().to_owned() + "\n" + source.description()
-        }
-    } else {
-        destination.description().to_owned()
-    }
-}
-
-fn combine_bookmarks(branch_names: &[impl Display]) -> String {
-    match branch_names {
-        [branch_name] => format!("bookmark {}", branch_name),
-        branch_names => format!("bookmarks {}", branch_names.iter().join(", ")),
-    }
-}
-
-fn build_matcher(paths: &[TreePath]) -> Result<Box<dyn Matcher>> {
-    if paths.is_empty() {
-        Ok(Box::new(EverythingMatcher))
-    } else {
-        let repo_paths: Vec<_> = paths
-            .iter()
-            .map(|p| RepoPath::from_internal_string(&p.repo_path))
-            .try_collect()?;
-        Ok(Box::new(FilesMatcher::new(&repo_paths)))
-    }
-}
-
-fn classify_branch_push(
-    branch_name: &str,
-    remote_name: &str,
-    targets: LocalAndRemoteRef,
-) -> Result<Option<BookmarkPushUpdate>, String> {
-    let push_action = refs::classify_bookmark_push_action(targets);
-    match push_action {
-        BookmarkPushAction::AlreadyMatches => Ok(None),
-        BookmarkPushAction::Update(update) => Ok(Some(update)),
-        BookmarkPushAction::LocalConflicted => {
-            Err(format!("Bookmark {} is conflicted.", branch_name))
-        }
-        BookmarkPushAction::RemoteConflicted => Err(format!(
-            "Bookmark {}@{} is conflicted. Try fetching first.",
-            branch_name, remote_name
-        )),
-        BookmarkPushAction::RemoteUntracked => Err(format!(
-            "Non-tracking remote bookmark {}@{} exists. Try tracking it first.",
-            branch_name, remote_name
-        )),
     }
 }

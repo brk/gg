@@ -44,44 +44,6 @@ impl JjCliExecutor {
             Err(anyhow!("jj command failed: {}", stderr))
         }
     }
-    
-    /// Execute a jj command with stdin input
-    pub fn execute_with_stdin(&self, args: &[&str], stdin_data: &str, ignore_working_copy: bool) -> Result<String> {
-        let mut cmd = Command::new("jj");
-        
-        cmd.arg("-R").arg(&self.repo_path);
-        
-        if ignore_working_copy {
-            cmd.arg("--ignore-working-copy");
-        }
-        
-        cmd.arg("--color=never");
-        cmd.args(args);
-        
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        
-        let mut child = cmd.spawn()
-            .context("Failed to spawn jj command")?;
-        
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write;
-            stdin.write_all(stdin_data.as_bytes())
-                .context("Failed to write to jj stdin")?;
-        }
-        
-        let output = child.wait_with_output()
-            .context("Failed to wait for jj command")?;
-        
-        if output.status.success() {
-            String::from_utf8(output.stdout)
-                .context("Failed to parse jj output as UTF-8")
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(anyhow!("jj command failed: {}", stderr))
-        }
-    }
 }
 
 #[cfg(test)]
