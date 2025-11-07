@@ -66,8 +66,8 @@ pub struct CreateRevisionBetween {
     derive(TS),
     ts(export, export_to = "../src/messages/")
 )]
-pub struct InsertRevision {
-    pub id: RevId,
+pub struct InsertRevisions {
+    pub revset: String,
     pub after_id: RevId,
     pub before_id: RevId,
 }

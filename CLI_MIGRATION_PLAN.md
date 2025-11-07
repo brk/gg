@@ -145,7 +145,7 @@ These operations can be mapped to CLI but require multiple commands or careful a
 15. **MoveSource** → `jj rebase -s <revset> -d <destination>`
     - Maps to rebase with `--source` flag (rebases descendants too)
     
-16. **InsertRevision** → `jj new --insert-after <after> --insert-before <before>`
+16. **InsertRevisions** → `jj new --insert-after <after> --insert-before <before>`
     - Maps to `jj new` with insertion flags
     - May need `jj rebase` for complex cases
     
@@ -209,7 +209,7 @@ Start with operations that have 1:1 CLI mappings:
 Handle operations requiring multiple commands or complex arguments:
 - MoveRevisions
 - MoveSource
-- InsertRevision
+- InsertRevisions
 - CopyChanges
 - MoveChanges
 

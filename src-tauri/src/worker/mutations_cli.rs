@@ -831,25 +831,26 @@ impl crate::messages::RenameBranch {
 }
 
 /// jj rebase -r <target> -A <after> -B <before>
-impl crate::messages::InsertRevision {
+impl crate::messages::InsertRevisions {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let target = ws.resolve_single_change(&self.id)?;
         let before = ws.resolve_single_change(&self.before_id)?;
-        
-        if ws.check_immutable(vec![target.id().clone(), before.id().clone()])? {
+        if ws.check_immutable(vec![before.id().clone()])? {
             return Ok(MutationResult::PreconditionError {
-                message: "Some revisions are immutable".to_string(),
+                message: "Cannot insert before immutable revision".to_string(),
             });
         }
 
-        let cli = ws.cli_executor();
-        
-        // Use jj rebase with --insert-after and --insert-before
-        // This moves target to be after 'after' and before 'before'
+        let revset_expr = ws.parse_revset_str(&self.revset)?;
+        if ws.check_immutable_revset(revset_expr)? {
+            return Ok(MutationResult::PreconditionError {
+                message: format!("Cannot move immutable revision"),
+            });
+        }
+
         let args: Vec<String> = vec![
             "rebase".to_string(),
             "-r".to_string(),
-            self.id.commit.hex.clone(),
+            self.revset,
             "--insert-after".to_string(),
             self.after_id.commit.hex.clone(),
             "--insert-before".to_string(),
@@ -857,6 +858,7 @@ impl crate::messages::InsertRevision {
         ];
         
         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        let cli = ws.cli_executor();
         cli.execute(&args_str)
             .context("Failed to insert revision via CLI")?;
         

@@ -26,7 +26,7 @@ Successfully migrated **20 repository mutations** from jj_lib library calls to j
 17. **CopyChanges** - Restore file changes from one revision to another
 18. **MoveChanges** - Squash file changes from one revision into another
 19. **CreateRevisionBetween** - Insert a new revision between two existing ones
-20. **InsertRevision** - Move an existing revision to be between two others
+20. **InsertRevisions** - Move an existing revision to be between two others
 
 ### New Infrastructure
 

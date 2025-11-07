@@ -4,7 +4,7 @@ import { currentRevisionSet } from "../stores";
 import type { Operand } from "../messages/Operand";
 import type { MoveChanges } from "../messages/MoveChanges";
 import type { MoveRef } from "../messages/MoveRef";
-import type { InsertRevision } from "../messages/InsertRevision";
+import type { InsertRevisions } from "../messages/InsertRevisions";
 import type { MoveRevisions } from "../messages/MoveRevisions";
 import type { MoveSource } from "../messages/MoveSource";
 import type { ChangeId } from "../messages/ChangeId";
@@ -185,7 +185,9 @@ export default class BinaryMutator {
                 return;
             } else if (this.#to.type == "Parent") {
                 // rebase between targets 
-                mutate<InsertRevision>("insert_revision", { id: this.#from.header.id, after_id: this.#to.header.id, before_id: this.#to.child.id });
+                const revs = get(currentRevisionSet);
+                const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
+                mutate<InsertRevisions>("insert_revisions", { revset, after_id: this.#to.header.id, before_id: this.#to.child.id });
                 return;
             } else if (this.#to.type == "Merge") {
                 // rebase subtree onto additional targets

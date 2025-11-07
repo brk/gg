@@ -2,7 +2,7 @@ use super::{mkrepo, revs};
 use crate::{
     messages::{
         AbandonRevisions, ChangeHunk, CheckoutRevision, CopyChanges, CreateRevision,
-        DescribeRevision, DuplicateRevisions, FileRange, HunkLocation, InsertRevision, MoveChanges,
+        DescribeRevision, DuplicateRevisions, FileRange, HunkLocation, InsertRevisions, MoveChanges,
         MoveHunk, MoveSource, MultilineString, MutationResult, RevResult, TreePath,
     },
     worker::{Mutation, WorkerSession, queries},
@@ -258,7 +258,7 @@ fn duplicate_revisions() -> Result<()> {
 }
 
 #[test]
-fn insert_revision() -> Result<()> {
+fn insert_revisions() -> Result<()> {
     let repo = mkrepo();
 
     let mut session = WorkerSession::default();
@@ -267,7 +267,7 @@ fn insert_revision() -> Result<()> {
     let page = queries::query_log(&ws, "main::@", 4)?;
     assert_eq!(2, page.rows.len());
 
-    InsertRevision {
+    InsertRevisions {
         after_id: revs::main_bookmark(),
         before_id: revs::working_copy(),
         id: revs::resolve_conflict(),

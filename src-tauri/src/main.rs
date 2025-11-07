@@ -28,7 +28,7 @@ use messages::{
     AbandonRevisions, BackoutRevisions, CheckoutRevision, CopyChanges, CreateRef, CreateRevision,
     CreateRevisionBetween,
     DeleteRef, DescribeRevision, DuplicateRevisions, GitFetch, GitPush, InputResponse,
-    InsertRevision, MoveChanges, MoveRef, MoveRevisions, MoveSource, MoveHunk, MutationResult, RenameBranch,
+    InsertRevisions, MoveChanges, MoveRef, MoveRevisions, MoveSource, MoveHunk, MutationResult, RenameBranch,
     RevId, TrackBranch, UndoOperation, UntrackBranch,
 };
 use worker::{Mutation, Session, SessionEvent, WorkerSession};
@@ -149,7 +149,7 @@ fn main() -> Result<()> {
             create_revision_between,
             describe_revision,
             duplicate_revisions,
-            insert_revision,
+            insert_revisions,
             move_revisions,
             move_source,
             move_changes,
@@ -390,10 +390,10 @@ fn create_revision_between(
 }
 
 #[tauri::command(async)]
-fn insert_revision(
+fn insert_revisions(
     window: Window,
     app_state: State<AppState>,
-    mutation: InsertRevision,
+    mutation: InsertRevisions,
 ) -> Result<MutationResult, InvokeError> {
     try_mutate(window, app_state, mutation)
 }
