@@ -138,7 +138,7 @@ These operations have direct CLI equivalents with straightforward argument mappi
 
 These operations can be mapped to CLI but require multiple commands or careful argument construction:
 
-14. **MoveRevision** → `jj rebase -r <revset> -d <destination>`
+14. **MoveRevisions** → `jj rebase -r <revset> -d <destination>`
     - Maps to rebase with `--revision` flag
     - Need to handle multiple parents as merge
     
@@ -207,7 +207,7 @@ Start with operations that have 1:1 CLI mappings:
 
 ### Phase 3: Migrate Complex Operations (Priority 14-18)
 Handle operations requiring multiple commands or complex arguments:
-- MoveRevision
+- MoveRevisions
 - MoveSource
 - InsertRevision
 - CopyChanges
@@ -290,7 +290,7 @@ jj operation undo {operation_id}
 4. ✅ DescribeRevision (metadata only, simple)
 5. ✅ CreateRevision (simple creation)
 6. ✅ DuplicateRevisions (well-defined operation)
-7. ⚠️ MoveRevision, MoveSource (rebase operations)
+7. ⚠️ MoveRevisions, MoveSource (rebase operations)
 8. ⚠️ CopyChanges (restore operation)
 9. ⚠️ MoveChanges (squash operation)
 10. ⚠️ CheckoutRevision (working copy manipulation)

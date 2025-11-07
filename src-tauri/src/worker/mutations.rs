@@ -19,7 +19,7 @@ use tokio::io::AsyncReadExt as _;
 use crate::messages::{
     AbandonRevisions, BackoutRevisions, CheckoutRevision, CopyChanges, CreateRef, CreateRevision,
     CreateRevisionBetween, DeleteRef, DescribeRevision, DuplicateRevisions, GitFetch, GitPush,
-    InsertRevision, MoveChanges, MoveHunk, MoveRef, MoveRevision, MoveSource, MutationResult,
+    InsertRevision, MoveChanges, MoveHunk, MoveRef, MoveRevisions, MoveSource, MutationResult,
     RenameBranch, TrackBranch, UndoOperation, UntrackBranch,
 };
 
@@ -111,7 +111,7 @@ impl Mutation for InsertRevision {
 }
 
 
-impl Mutation for MoveRevision {
+impl Mutation for MoveRevisions {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         // Use CLI-based implementation
         self.execute_cli(ws)

@@ -586,22 +586,21 @@ impl GitPush {
     }
 }
 
-/// CLI-based implementation of MoveRevision  
-/// Maps to: jj rebase -r <revision> -d <destination>
-impl crate::messages::MoveRevision {
+/// CLI-based implementation of MoveRevisions  
+/// Maps to: jj rebase -r <revset> -d <destination>
+impl crate::messages::MoveRevisions {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        let target = ws.resolve_single_change(&self.id)?;
-        
-        if ws.check_immutable(vec![target.id().clone()])? {
+        let revset_expr = ws.parse_revset_str(&self.revset)?;
+        if ws.check_immutable_revset(revset_expr)? {
             return Ok(MutationResult::PreconditionError {
-                message: format!("Revision {} is immutable", self.id.change.prefix),
+                message: format!("Cannot move immutable revision"),
             });
         }
 
         let cli = ws.cli_executor();
         
-        // Build arguments: jj rebase -r <revision> -d <parent1> -d <parent2> ...
-        let mut args: Vec<String> = vec!["rebase".to_string(), "-r".to_string(), self.id.commit.hex.clone()];
+        // Build arguments: jj rebase -r <revset> -d <parent1> -d <parent2> ...
+        let mut args: Vec<String> = vec!["rebase".to_string(), "-r".to_string(), self.revset];
         
         for parent_id in &self.parent_ids {
             args.push("-d".to_string());
@@ -740,7 +739,7 @@ impl crate::messages::MoveChanges {
 
         let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
-        let res = cli.execute(&args_str)
+        cli.execute(&args_str)
             .context("Failed to squash changes via CLI")?;
         
         let changed = ws.load_at_head()?;
@@ -770,7 +769,6 @@ impl crate::messages::CreateRevisionBetween {
 
         let cli = ws.cli_executor();
         
-        // Build arguments: jj new --insert-after <after> --insert-before <before>
         // Note: after_id is CommitId, before_id is RevId
         let args: Vec<String> = vec![
             "new".to_string(),
@@ -832,10 +830,7 @@ impl crate::messages::RenameBranch {
     }
 }
 
-/// CLI-based implementation of InsertRevision
-/// Maps to: jj rebase -r <target> -d <after> && jj rebase -s <before> -d <target>
-/// OR: jj new --insert-after <after> --insert-before <before> && jj rebase -r <target> -d <new>
-/// Actually, we can use: jj rebase -r <target> -A <after> -B <before>
+/// jj rebase -r <target> -A <after> -B <before>
 impl crate::messages::InsertRevision {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         let target = ws.resolve_single_change(&self.id)?;

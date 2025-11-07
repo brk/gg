@@ -5,7 +5,7 @@ import type { Operand } from "../messages/Operand";
 import type { MoveChanges } from "../messages/MoveChanges";
 import type { MoveRef } from "../messages/MoveRef";
 import type { InsertRevision } from "../messages/InsertRevision";
-import type { MoveRevision } from "../messages/MoveRevision";
+import type { MoveRevisions } from "../messages/MoveRevisions";
 import type { MoveSource } from "../messages/MoveSource";
 import type { ChangeId } from "../messages/ChangeId";
 import type { CommitId } from "../messages/CommitId";
@@ -178,8 +178,10 @@ export default class BinaryMutator {
     doDrop() {
         if (this.#from.type == "Revision") {
             if (this.#to.type == "Revision") {
-                // rebase rev onto single target
-                mutate<MoveRevision>("move_revision", { id: this.#from.header.id, parent_ids: [this.#to.header.id] });
+                // rebase revset onto single target
+                const revs = get(currentRevisionSet);
+                const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
+                mutate<MoveRevisions>("move_revisions", { revset, parent_ids: [this.#to.header.id] });
                 return;
             } else if (this.#to.type == "Parent") {
                 // rebase between targets 

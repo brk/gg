@@ -200,6 +200,13 @@ impl WorkspaceSession<'_> {
         Ok(revset)
     }
 
+    pub fn parse_revset_str<'op>(
+        &'op self,
+        revset_str: &str,
+    ) -> Result<Rc<UserRevsetExpression>, RevsetError> {
+        parse_revset(&self.parse_context(), revset_str)
+    }
+
     pub fn evaluate_revset_str<'op>(
         &'op self,
         revset_str: &str,
@@ -529,7 +536,10 @@ impl WorkspaceSession<'_> {
 
     pub fn check_immutable(&self, ids: impl IntoIterator<Item = CommitId>) -> Result<bool> {
         let check_revset = RevsetExpression::commits(ids.into_iter().collect());
+        self.check_immutable_revset(check_revset)
+    }
 
+    pub fn check_immutable_revset(&self, check_revset: Rc<UserRevsetExpression>) -> Result<bool> {
         let mut diagnostics = RevsetDiagnostics::new();
         let immutable_revset =
             revset_util::parse_immutable_heads_expression(&mut diagnostics, &self.parse_context())?;

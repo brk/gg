@@ -18,7 +18,7 @@ impl JjCliExecutor {
     /// # Arguments
     /// * `args` - Command arguments (e.g., &["abandon", "abc123"])
     pub fn execute(&self, args: &[&str]) -> Result<String> {
-        //println!("RUNNING jj {}", args.join(" "));
+        println!("RUNNING jj {}", args.join(" "));
         let mut cmd = Command::new("jj");
 
         // With the -R flag one must specify repo-relative paths with

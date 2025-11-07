@@ -78,8 +78,8 @@ pub struct InsertRevision {
     derive(TS),
     ts(export, export_to = "../src/messages/")
 )]
-pub struct MoveRevision {
-    pub id: RevId,
+pub struct MoveRevisions {
+    pub revset: String,
     pub parent_ids: Vec<RevId>,
 }
 

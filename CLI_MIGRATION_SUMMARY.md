@@ -21,7 +21,7 @@ Successfully migrated **20 repository mutations** from jj_lib library calls to j
 14. **RenameBranch** - Rename bookmarks
 
 ### Phase 2 - Complex Operations (5 operations)
-15. **MoveRevision** - Rebase a single revision to new parents
+15. **MoveRevisions** - Rebase a single revision to new parents
 16. **MoveSource** - Rebase a revision and its descendants
 17. **CopyChanges** - Restore file changes from one revision to another
 18. **MoveChanges** - Squash file changes from one revision into another
