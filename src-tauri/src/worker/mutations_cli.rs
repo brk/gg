@@ -434,7 +434,7 @@ impl MoveRef {
                 });
             }
             StoreRef::LocalBookmark { branch_name, .. } => {
-                let args = vec!["bookmark", "set", &branch_name, "-r", &self.to_id.commit.hex];
+                let args = vec!["bookmark", "set", &branch_name, "-r", &self.to_id.commit.hex, "--allow-backwards"];
 
                 cli.execute(&args)
                     .context("Failed to move bookmark via CLI")?;
