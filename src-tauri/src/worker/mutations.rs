@@ -1,16 +1,22 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use itertools::Itertools;
 use jj_lib::backend::{CopyId, FileId, MergedTreeId, TreeValue};
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::{MergedTree, MergedTreeBuilder};
+use jj_lib::ref_name::{RefNameBuf, RemoteName, RemoteNameBuf, RemoteRefSymbol};
 use jj_lib::{
     backend::{BackendError, CommitId},
+    git::{self, GitBranchPushTargets},
     commit::Commit,
     object_id::ObjectId as ObjectIdTrait,
+    refs::{self, BookmarkPushAction, BookmarkPushUpdate, LocalAndRemoteRef},
     repo::Repo,
     repo_path::RepoPath,
+    revset::{self, RevsetIteratorExt},
     rewrite::{self},
+    settings::UserSettings,
     store::Store,
 };
 use pollster::block_on;
@@ -471,7 +477,205 @@ fn update_tree_entry(
 
 impl Mutation for GitPush {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        self.execute_cli(ws)
+        let mut tx = ws.start_transaction()?;
+
+        // determine bookmarks to push, recording the old and new commits
+        let mut remote_branch_updates: Vec<(&str, Vec<(RefNameBuf, refs::BookmarkPushUpdate)>)> =
+            Vec::new();
+        let remote_branch_refs: Vec<_> = match &*self {
+            GitPush::AllBookmarks { remote_name } => {
+                let remote_name_ref = RemoteNameBuf::from(remote_name);
+                let mut branch_updates = Vec::new();
+                for (branch_name, targets) in ws.view().local_remote_bookmarks(&remote_name_ref) {
+                    if !targets.remote_ref.is_tracked() {
+                        continue;
+                    }
+
+                    match classify_branch_push(branch_name.as_str(), remote_name, targets) {
+                        Err(message) => return Ok(MutationResult::PreconditionError { message }),
+                        Ok(None) => (),
+                        Ok(Some(update)) => branch_updates.push((branch_name.to_owned(), update)),
+                    }
+                }
+                remote_branch_updates.push((remote_name, branch_updates));
+
+                ws.view()
+                    .remote_bookmarks(&remote_name_ref)
+                    .map(|(name, remote_ref)| (name.to_owned(), remote_ref))
+                    .collect()
+            }
+            GitPush::AllRemotes { branch_ref } => {
+                let branch_name = branch_ref.as_branch()?;
+                let branch_name_ref = RefNameBuf::from(branch_name);
+
+                let mut remote_branch_refs = Vec::new();
+                for (remote_name, group) in ws
+                    .view()
+                    .all_remote_bookmarks()
+                    .filter_map(|(remote_ref_symbol, remote_ref)| {
+                        if remote_ref.is_tracked() && remote_ref_symbol.name == &branch_name_ref {
+                            Some((remote_ref_symbol.remote, remote_ref))
+                        } else {
+                            None
+                        }
+                    })
+                    .chunk_by(|(remote_name, _)| *remote_name)
+                    .into_iter()
+                {
+                    let mut branch_updates = Vec::new();
+                    for (_, remote_ref) in group {
+                        let targets = LocalAndRemoteRef {
+                            local_target: ws.view().get_local_bookmark(&branch_name_ref),
+                            remote_ref,
+                        };
+                        match classify_branch_push(branch_name, remote_name.as_str(), targets) {
+                            Err(message) => {
+                                return Ok(MutationResult::PreconditionError { message });
+                            }
+                            Ok(None) => (),
+                            Ok(Some(update)) => {
+                                branch_updates.push((RefNameBuf::from(branch_name), update))
+                            }
+                        }
+                        remote_branch_refs.push((RefNameBuf::from(branch_name), remote_ref));
+                    }
+                    remote_branch_updates.push((remote_name.as_str(), branch_updates));
+                }
+
+                remote_branch_refs
+            }
+            GitPush::RemoteBookmark {
+                remote_name,
+                branch_ref,
+            } => {
+                let branch_name = branch_ref.as_branch()?;
+                let branch_name_ref = RefNameBuf::from(branch_name);
+                let local_target = ws.view().get_local_bookmark(&branch_name_ref);
+                let remote_name_ref = RemoteNameBuf::from(remote_name);
+                let remote_ref_symbol = RemoteRefSymbol {
+                    name: &branch_name_ref,
+                    remote: &remote_name_ref,
+                };
+                let remote_ref = ws.view().get_remote_bookmark(remote_ref_symbol);
+
+                match classify_branch_push(
+                    branch_name,
+                    remote_name,
+                    LocalAndRemoteRef {
+                        local_target,
+                        remote_ref,
+                    },
+                ) {
+                    Err(message) => return Ok(MutationResult::PreconditionError { message }),
+                    Ok(None) => (),
+                    Ok(Some(update)) => {
+                        remote_branch_updates
+                            .push((remote_name, vec![(RefNameBuf::from(branch_name), update)]));
+                    }
+                }
+
+                vec![(
+                    RefNameBuf::from(branch_name),
+                    ws.view().get_remote_bookmark(remote_ref_symbol),
+                )]
+            }
+        };
+
+        // check for conflicts
+        let mut new_heads = vec![];
+        for (_, branch_updates) in &mut remote_branch_updates {
+            for (_, update) in branch_updates {
+                if let Some(new_target) = &update.new_target {
+                    new_heads.push(new_target.clone());
+                }
+            }
+        }
+
+        let mut old_heads = remote_branch_refs
+            .into_iter()
+            .flat_map(|(_, old_head)| old_head.target.added_ids())
+            .cloned()
+            .collect_vec();
+        if old_heads.is_empty() {
+            old_heads.push(ws.repo().store().root_commit_id().clone());
+        }
+
+        for commit in revset::walk_revs(ws.repo(), &new_heads, &old_heads)?
+            .iter()
+            .commits(ws.repo().store())
+        {
+            let commit = commit?;
+            let mut reasons = vec![];
+            if commit.description().is_empty() {
+                reasons.push("it has no description");
+            }
+            if commit.author().name.is_empty()
+                || commit.author().name == UserSettings::USER_NAME_PLACEHOLDER
+                || commit.author().email.is_empty()
+                || commit.author().email == UserSettings::USER_EMAIL_PLACEHOLDER
+                || commit.committer().name.is_empty()
+                || commit.committer().name == UserSettings::USER_NAME_PLACEHOLDER
+                || commit.committer().email.is_empty()
+                || commit.committer().email == UserSettings::USER_EMAIL_PLACEHOLDER
+            {
+                reasons.push("it has no author and/or committer set");
+            }
+            if commit.has_conflict()? {
+                reasons.push("it has conflicts");
+            }
+            if !reasons.is_empty() {
+                precondition!(
+                    "Won't push revision {} since {}",
+                    ws.format_change_id(commit.change_id()).prefix,
+                    reasons.join(" and ")
+                );
+            }
+        }
+
+        // push to each remote
+        for (remote_name, branch_updates) in remote_branch_updates.into_iter() {
+            let targets = GitBranchPushTargets { branch_updates };
+            let git_settings = ws.data.settings.git_settings()?;
+
+            ws.session.callbacks.with_git(tx.repo_mut(), &|repo, cb| {
+                git::push_branches(
+                    repo,
+                    &git_settings,
+                    RemoteName::new(remote_name),
+                    &targets,
+                    cb,
+                )?;
+                Ok(())
+            })?;
+        }
+
+        match ws.finish_transaction(
+            tx,
+            match *self {
+                GitPush::AllBookmarks { remote_name } => {
+                    format!("push all tracked branches to git remote {}", remote_name)
+                }
+                GitPush::AllRemotes { branch_ref } => {
+                    format!(
+                        "push {} to all tracked git remotes",
+                        branch_ref.as_branch()?
+                    )
+                }
+                GitPush::RemoteBookmark {
+                    remote_name,
+                    branch_ref,
+                } => {
+                    format!(
+                        "push {} to git remote {}",
+                        branch_ref.as_branch()?,
+                        remote_name
+                    )
+                }
+            },
+        )? {
+            Some(new_status) => Ok(MutationResult::Updated { new_status }),
+            None => Ok(MutationResult::Unchanged),
+        }
     }
 }
 
@@ -483,5 +687,28 @@ impl Mutation for GitFetch {
 impl Mutation for UndoOperation {
     fn execute(self: Box<Self>, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         self.execute_cli(ws)
+    }
+}
+
+fn classify_branch_push(
+    branch_name: &str,
+    remote_name: &str,
+    targets: LocalAndRemoteRef,
+) -> Result<Option<BookmarkPushUpdate>, String> {
+    let push_action = refs::classify_bookmark_push_action(targets);
+    match push_action {
+        BookmarkPushAction::AlreadyMatches => Ok(None),
+        BookmarkPushAction::Update(update) => Ok(Some(update)),
+        BookmarkPushAction::LocalConflicted => {
+            Err(format!("Bookmark {} is conflicted.", branch_name))
+        }
+        BookmarkPushAction::RemoteConflicted => Err(format!(
+            "Bookmark {}@{} is conflicted. Try fetching first.",
+            branch_name, remote_name
+        )),
+        BookmarkPushAction::RemoteUntracked => Err(format!(
+            "Non-tracking remote bookmark {}@{} exists. Try tracking it first.",
+            branch_name, remote_name
+        )),
     }
 }

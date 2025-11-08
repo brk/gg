@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::messages::{
     AbandonRevisions, CheckoutRevision, CreateRef, CreateRevision, DeleteRef, DescribeRevision,
-    DuplicateRevisions, GitFetch, GitPush, MoveRef, MutationResult, StoreRef, TrackBranch,
+    DuplicateRevisions, GitFetch, MoveRef, MutationResult, StoreRef, TrackBranch,
     UndoOperation, UntrackBranch,
 };
 
@@ -523,7 +523,7 @@ impl GitFetch {
     }
 }
 
-/// CLI-based implementation of GitPush
+/*
 impl GitPush {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         let cli = ws.cli_executor();
@@ -573,6 +573,7 @@ impl GitPush {
         }
     }
 }
+*/
 
 /// CLI-based implementation of MoveRevisions  
 /// Maps to: jj rebase -r <revset> -d <destination>
