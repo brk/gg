@@ -15,27 +15,16 @@ use super::gui_util::WorkspaceSession;
 /// CLI-based implementation of AbandonRevisions
 impl AbandonRevisions {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
-        // Check immutability first (this requires library access)
-        let abandoned_ids = self
-            .ids
-            .iter()
-            .map(|id| jj_lib::backend::CommitId::try_from_hex(&id.hex).expect("frontend-validated id"))
-            .collect_vec();
-
-        if ws.check_immutable(abandoned_ids.clone())? {
+        let revset_expr = ws.parse_revset_str(&self.revset)?;
+        if ws.check_immutable_revset(revset_expr)? {
             return Ok(MutationResult::PreconditionError {
-                message: "Some revisions are immutable".to_string(),
+                message: format!("Cannot abandon immutable revision"),
             });
         }
 
-        // Build CLI command
+        let args = vec!["abandon", &self.revset];
+        
         let cli = ws.cli_executor();
-        let commit_ids: Vec<&str> = self.ids.iter().map(|id| id.hex.as_str()).collect();
-        
-        let mut args = vec!["abandon"];
-        args.extend(&commit_ids);
-        
-        // Execute the command
         cli.execute(&args)
             .context("Failed to abandon revisions via CLI")?;
         

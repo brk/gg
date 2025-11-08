@@ -11,7 +11,10 @@ import type { DuplicateRevisions } from "../messages/DuplicateRevisions";
 import type { MoveChanges } from "../messages/MoveChanges";
 import type { CreateRef } from "../messages/CreateRef";
 import { getInput, mutate } from "../ipc";
+import { currentRevisionSet } from "../stores";
+import { get } from "svelte/store";
 import type { StoreRef } from "../messages/StoreRef";
+
 
 export default class RevisionMutator {
     #revision: RevHeader;
@@ -117,8 +120,10 @@ export default class RevisionMutator {
     };
 
     onAbandon = () => {
+        const revs = get(currentRevisionSet);
+        const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
         mutate<AbandonRevisions>("abandon_revisions", {
-            ids: [this.#revision.id.commit],
+            revset
         });
     };
 

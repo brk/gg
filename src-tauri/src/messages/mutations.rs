@@ -138,7 +138,7 @@ pub struct DuplicateRevisions {
     ts(export, export_to = "../src/messages/")
 )]
 pub struct AbandonRevisions {
-    pub ids: Vec<CommitId>,
+    pub revset: String,
 }
 
 /// Adds changes to the working copy which reverse the effect of the selected revisions
