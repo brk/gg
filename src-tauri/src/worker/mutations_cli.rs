@@ -2,7 +2,6 @@
 //! These use the jj CLI tool instead of library calls
 
 use anyhow::{Context, Result};
-use itertools::Itertools;
 
 use crate::messages::{
     AbandonRevisions, CheckoutRevision, CreateRef, CreateRevision, DeleteRef, DescribeRevision,
