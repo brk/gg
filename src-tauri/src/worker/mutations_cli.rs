@@ -9,6 +9,8 @@ use crate::messages::{
     UndoOperation, UntrackBranch,
 };
 
+use jj_lib::commit::Commit;
+
 use super::gui_util::WorkspaceSession;
 
 /// CLI-based implementation of AbandonRevisions
@@ -696,6 +698,20 @@ impl crate::messages::CopyChanges {
     }
 }
 
+fn combine_messages(source: &Commit, destination: &Commit, abandon_source: bool) -> String {
+    if abandon_source {
+        if source.description().is_empty() {
+            destination.description().to_owned()
+        } else if destination.description().is_empty() {
+            source.description().to_owned()
+        } else {
+            destination.description().to_owned() + "\n" + source.description()
+        }
+    } else {
+        destination.description().to_owned()
+    }
+}
+
 /// CLI-based implementation of MoveChanges
 /// Maps to: jj squash --from <from> --into <to> [paths]
 impl crate::messages::MoveChanges {
@@ -710,6 +726,12 @@ impl crate::messages::MoveChanges {
             });
         }
 
+        let from = ws.resolve_single_commit(&self.from_id.commit)?;
+
+        println!("self.paths: {:?}", self.paths);
+        let abandon_source = self.paths.is_empty();
+        let description = combine_messages(&from, &to_commit, abandon_source);
+
         let cli = ws.cli_executor();
         // Build arguments: jj squash --from <from> --into <to> [paths]
         // Note: from_id is RevId, to_id is CommitId
@@ -719,6 +741,8 @@ impl crate::messages::MoveChanges {
             self.from_id.commit.hex.clone(),  // RevId.commit.hex
             "--into".to_string(),
             to_id_hex.clone(),  // CommitId.hex
+            "--message".to_string(),
+            description
         ];
         
         // Add paths if specified
