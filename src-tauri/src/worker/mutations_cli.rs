@@ -181,9 +181,7 @@ impl CreateRevision {
 impl UndoOperation {
     pub fn execute_cli(self, ws: &mut WorkspaceSession) -> Result<MutationResult> {
         let cli = ws.cli_executor();
-        // Undo the most recent operation (@)
-        let args = vec!["operation", "undo"];
-        
+        let args = vec!["undo"];
         cli.execute(&args)
             .context("Failed to undo operation via CLI")?;
         
