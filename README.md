@@ -18,11 +18,13 @@ Put `gg` on your path and run it from a Jujutsu workspace, pass the workspace di
 - Using `gg &` on MacOS/Linux or `start gg` on Windows will run in the background without blocking your shell.
 - `gg --help` will display some possible command-line arguments.
 
+This fork of GG requires [`jj`](https://martinvonz.github.io/jj/latest/install-and-setup/)
+to be in your PATH.
+
 ### Configuration
 GG uses `jj config`; `revset-aliases.immutable_heads()` is particularly important, as it determines how much history you can edit. GG has some additional settings of its own, with defaults and documentation [here](src-tauri/src/config/gg.toml).
 
 ## Features
-GG doesn't require [JJ](https://martinvonz.github.io/jj/latest/install-and-setup/) to run, but you'll need it for tasks GG doesn't cover. What it *can* do:
 - Use the left pane to query and browse the log. Click to select revisions, double-click to edit (if mutable) or create a new child (if immutable).
 - Use the right pane to inspect and edit revisions - set descriptions, issue commands, view their parents and changes.
 - Drag revisions around to rebase them; move them into or out of a revision's parents to add merges and move entire subtrees. Or just abandon them entirely.
