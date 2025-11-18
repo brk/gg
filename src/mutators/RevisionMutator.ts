@@ -123,7 +123,7 @@ export default class RevisionMutator {
         const revs = get(currentRevisionSet);
         const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
         mutate<AbandonRevisions>("abandon_revisions", {
-            revset
+            revset: revset != "" ? revset : this.#revision.id.change.hex
         });
     };
 

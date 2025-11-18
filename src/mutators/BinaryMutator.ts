@@ -175,19 +175,24 @@ export default class BinaryMutator {
         return { type: "no" };
     }
 
+    currentRevset(): string {
+        const revs = get(currentRevisionSet);
+        const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
+        if (revset == "" && this.#from.type == "Revision") {
+            return this.#from.header.id.change.hex;
+        }
+        return revset;
+    }
+
     doDrop() {
         if (this.#from.type == "Revision") {
             if (this.#to.type == "Revision") {
                 // rebase revset onto single target
-                const revs = get(currentRevisionSet);
-                const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
-                mutate<MoveRevisions>("move_revisions", { revset, parent_ids: [this.#to.header.id] });
+                mutate<MoveRevisions>("move_revisions", { revset: this.currentRevset(), parent_ids: [this.#to.header.id] });
                 return;
             } else if (this.#to.type == "Parent") {
                 // rebase between targets 
-                const revs = get(currentRevisionSet);
-                const revset = Array.from(revs).map(changeId => changeId.prefix).join(" | ");
-                mutate<InsertRevisions>("insert_revisions", { revset, after_id: this.#to.header.id, before_id: this.#to.child.id });
+                mutate<InsertRevisions>("insert_revisions", { revset: this.currentRevset(), after_id: this.#to.header.id, before_id: this.#to.child.id });
                 return;
             } else if (this.#to.type == "Merge") {
                 // rebase subtree onto additional targets
